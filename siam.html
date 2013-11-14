@@ -1,0 +1,340 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>siam Package &mdash; siam 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="siam 0.1 documentation" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="index.html">siam 0.1 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="siam-package">
+<h1>siam Package<a class="headerlink" href="#siam-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="id1">
+<h2><tt class="xref py py-mod docutils literal"><span class="pre">siam</span></tt> Package<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h2>
+<span class="target" id="module-siam.__init__"></span><dl class="docutils">
+<dt>/<strong>***********************************************************************</strong></dt>
+<dd><dl class="first docutils">
+<dt>Siam</dt>
+<dd>A QGIS plugin</dd>
+<dt>For now only hypsometry around inlets</dt>
+<dd><blockquote class="first">
+<div></div></blockquote>
+<p class="last">begin                : 2013-11-05
+copyright            : (C) 2013 by Mikhail Titov
+email                : <a class="reference external" href="mailto:mlt&#37;&#52;&#48;gmx&#46;us">mlt<span>&#64;</span>gmx<span>&#46;</span>us</a></p>
+</dd>
+</dl>
+<p class="last"><strong>***********************************************************************</strong>/</p>
+</dd>
+<dt>/<strong>***********************************************************************</strong></dt>
+<dd><ul class="first simple">
+<li><ul class="first">
+<li></li>
+</ul>
+</li>
+<li>This program is free software; you can redistribute it and/or modify  *</li>
+<li>it under the terms of the GNU General Public License as published by  *</li>
+<li>the Free Software Foundation; either version 2 of the License, or     *</li>
+<li>(at your option) any later version.                                   *</li>
+<li><ul class="first">
+<li></li>
+</ul>
+</li>
+</ul>
+<p class="last"><strong>***********************************************************************</strong>/
+This script initializes the plugin, making it known to QGIS.</p>
+</dd>
+</dl>
+<dl class="function">
+<dt id="siam.__init__.classFactory">
+<tt class="descclassname">siam.__init__.</tt><tt class="descname">classFactory</tt><big>(</big><em>iface</em><big>)</big><a class="reference internal" href="_modules/siam/__init__.html#classFactory"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.__init__.classFactory" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-siam.MultiProcessingLog">
+<span id="multiprocessinglog-module"></span><h2><tt class="xref py py-mod docutils literal"><span class="pre">MultiProcessingLog</span></tt> Module<a class="headerlink" href="#module-siam.MultiProcessingLog" title="Permalink to this headline">¶</a></h2>
+<p>Python 2 logger for multiprocessing taken from
+<a class="reference external" href="http://stackoverflow.com/questions/641420/how-should-i-log-while-using-multiprocessing-in-python">http://stackoverflow.com/questions/641420/how-should-i-log-while-using-multiprocessing-in-python</a></p>
+<dl class="class">
+<dt id="siam.MultiProcessingLog.QueueHandler">
+<em class="property">class </em><tt class="descclassname">siam.MultiProcessingLog.</tt><tt class="descname">QueueHandler</tt><big>(</big><em>queue</em><big>)</big><a class="reference internal" href="_modules/siam/MultiProcessingLog.html#QueueHandler"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.MultiProcessingLog.QueueHandler" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <tt class="xref py py-class docutils literal"><span class="pre">logging.Handler</span></tt></p>
+<dl class="method">
+<dt id="siam.MultiProcessingLog.QueueHandler.close">
+<tt class="descname">close</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/siam/MultiProcessingLog.html#QueueHandler.close"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.MultiProcessingLog.QueueHandler.close" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="siam.MultiProcessingLog.QueueHandler.emit">
+<tt class="descname">emit</tt><big>(</big><em>record</em><big>)</big><a class="reference internal" href="_modules/siam/MultiProcessingLog.html#QueueHandler.emit"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.MultiProcessingLog.QueueHandler.emit" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="siam.MultiProcessingLog.QueueHandler.send">
+<tt class="descname">send</tt><big>(</big><em>s</em><big>)</big><a class="reference internal" href="_modules/siam/MultiProcessingLog.html#QueueHandler.send"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.MultiProcessingLog.QueueHandler.send" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="siam.MultiProcessingLog.QueueListener">
+<em class="property">class </em><tt class="descclassname">siam.MultiProcessingLog.</tt><tt class="descname">QueueListener</tt><big>(</big><em>queue</em><big>)</big><a class="reference internal" href="_modules/siam/MultiProcessingLog.html#QueueListener"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.MultiProcessingLog.QueueListener" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <tt class="xref py py-class docutils literal"><span class="pre">threading.Thread</span></tt></p>
+<dl class="method">
+<dt id="siam.MultiProcessingLog.QueueListener.run">
+<tt class="descname">run</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/siam/MultiProcessingLog.html#QueueListener.run"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.MultiProcessingLog.QueueListener.run" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-siam.hypsometry">
+<span id="hypsometry-module"></span><h2><tt class="xref py py-mod docutils literal"><span class="pre">hypsometry</span></tt> Module<a class="headerlink" href="#module-siam.hypsometry" title="Permalink to this headline">¶</a></h2>
+<p>Quick &amp; Dirty way to retrieve a hypsometry given a set of starting
+points and DEM.</p>
+<dl class="class">
+<dt id="siam.hypsometry.Hypsometry">
+<em class="property">class </em><tt class="descclassname">siam.hypsometry.</tt><tt class="descname">Hypsometry</tt><big>(</big><em>args</em><big>)</big><a class="reference internal" href="_modules/siam/hypsometry.html#Hypsometry"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.hypsometry.Hypsometry" title="Permalink to this definition">¶</a></dt>
+<dd><p>Hypsometry creator</p>
+<dl class="method">
+<dt id="siam.hypsometry.Hypsometry.run">
+<tt class="descname">run</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/siam/hypsometry.html#Hypsometry.run"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.hypsometry.Hypsometry.run" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="siam.hypsometry.Starter">
+<em class="property">class </em><tt class="descclassname">siam.hypsometry.</tt><tt class="descname">Starter</tt><big>(</big><em>args</em><big>)</big><a class="reference internal" href="_modules/siam/hypsometry.html#Starter"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.hypsometry.Starter" title="Permalink to this definition">¶</a></dt>
+<dd><p>Performs initial work before spawning workers.</p>
+<dl class="method">
+<dt id="siam.hypsometry.Starter.kill">
+<tt class="descname">kill</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/siam/hypsometry.html#Starter.kill"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.hypsometry.Starter.kill" title="Permalink to this definition">¶</a></dt>
+<dd><p>To be used from GUI thread to abort operations</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="siam.hypsometry.Starter.mkout">
+<tt class="descname">mkout</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/siam/hypsometry.html#Starter.mkout"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.hypsometry.Starter.mkout" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set up output stuff</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="siam.hypsometry.Starter.run">
+<tt class="descname">run</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/siam/hypsometry.html#Starter.run"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.hypsometry.Starter.run" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="siam.hypsometry.run_part">
+<tt class="descclassname">siam.hypsometry.</tt><tt class="descname">run_part</tt><big>(</big><em>args</em><big>)</big><a class="reference internal" href="_modules/siam/hypsometry.html#run_part"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.hypsometry.run_part" title="Permalink to this definition">¶</a></dt>
+<dd><p>Entry point for sub-processes.</p>
+<p>Must be plain function on Windows. It can&#8217;t be un-/bound function:(</p>
+</dd></dl>
+
+</div>
+<div class="section" id="hypsometrydialog-module">
+<h2><tt class="xref py py-mod docutils literal"><span class="pre">hypsometrydialog</span></tt> Module<a class="headerlink" href="#hypsometrydialog-module" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="hypsometrythread-module">
+<h2><tt class="xref py py-mod docutils literal"><span class="pre">hypsometrythread</span></tt> Module<a class="headerlink" href="#hypsometrythread-module" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-siam.persistent">
+<span id="persistent-module"></span><h2><tt class="xref py py-mod docutils literal"><span class="pre">persistent</span></tt> Module<a class="headerlink" href="#module-siam.persistent" title="Permalink to this headline">¶</a></h2>
+<p>Persistent entries dialog synopsis:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">persistent</span> <span class="kn">import</span> <span class="n">PersistentDialog</span>
+<span class="kn">from</span> <span class="nn">PyQt4.uic</span> <span class="kn">import</span> <span class="n">loadUi</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtCore</span> <span class="kn">import</span> <span class="n">QSettings</span>
+<span class="kn">from</span> <span class="nn">os.path</span> <span class="kn">import</span> <span class="n">dirname</span><span class="p">,</span> <span class="n">join</span>
+
+<span class="k">class</span> <span class="nc">MyDialog</span><span class="p">(</span><span class="n">PersistentDialog</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">PersistentDialog</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="n">loadUi</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="n">dirname</span><span class="p">(</span><span class="n">__file__</span><span class="p">),</span> <span class="s">&#39;ui_mydialog.ui&#39;</span><span class="p">),</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_load_settings</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_load_settings</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="o">...</span> <span class="c"># extra initialization of, e.g., combo box items goes here</span>
+        <span class="n">settings</span> <span class="o">=</span> <span class="n">QSettings</span><span class="p">()</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">beginGroup</span><span class="p">(</span><span class="s">&#39;myplugin&#39;</span><span class="p">)</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">beginGroup</span><span class="p">(</span><span class="s">&#39;mydialog&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">loadall</span><span class="p">(</span><span class="n">settings</span><span class="p">)</span> <span class="c"># magic happens here</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">endGroup</span><span class="p">()</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">endGroup</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_save_settings</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">settings</span> <span class="o">=</span> <span class="n">QSettings</span><span class="p">()</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">beginGroup</span><span class="p">(</span><span class="s">&#39;myplugin&#39;</span><span class="p">)</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">beginGroup</span><span class="p">(</span><span class="s">&#39;mydialog&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">saveall</span><span class="p">(</span><span class="n">settings</span><span class="p">)</span> <span class="c"># here is where magic happens</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">endGroup</span><span class="p">()</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">endGroup</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">MyDialog</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_save_settings</span><span class="p">()</span>
+</pre></div>
+</div>
+<div class="admonition-todo admonition" id="index-0">
+<p class="first admonition-title">Todo</p>
+<p class="last">Emit signals upon changing entries</p>
+</div>
+<dl class="class">
+<dt id="siam.persistent.PersistentDialog">
+<em class="property">class </em><tt class="descclassname">siam.persistent.</tt><tt class="descname">PersistentDialog</tt><a class="reference internal" href="_modules/siam/persistent.html#PersistentDialog"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.persistent.PersistentDialog" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <tt class="xref py py-class docutils literal"><span class="pre">PyQt4.QtGui.QDialog</span></tt></p>
+<p><a class="reference external" href="http://pyqt.sourceforge.net/Docs/PyQt4/qdialog.html">QDialog</a> with basic user entries persistence using
+<a class="reference external" href="http://pyqt.sourceforge.net/Docs/PyQt4/qsettings.html">QSettings</a></p>
+<dl class="method">
+<dt id="siam.persistent.PersistentDialog.loadall">
+<tt class="descname">loadall</tt><big>(</big><em>settings</em><big>)</big><a class="headerlink" href="#siam.persistent.PersistentDialog.loadall" title="Permalink to this definition">¶</a></dt>
+<dd><p>Load dialog entries once descended into necessary settings group</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="siam.persistent.PersistentDialog.saveall">
+<tt class="descname">saveall</tt><big>(</big><em>settings</em><big>)</big><a class="headerlink" href="#siam.persistent.PersistentDialog.saveall" title="Permalink to this definition">¶</a></dt>
+<dd><p>Save dialog entries once descended into necessary settings group</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-siam.plugin_upload">
+<span id="plugin-upload-module"></span><h2><tt class="xref py py-mod docutils literal"><span class="pre">plugin_upload</span></tt> Module<a class="headerlink" href="#module-siam.plugin_upload" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="siam.plugin_upload.hidepassword">
+<tt class="descclassname">siam.plugin_upload.</tt><tt class="descname">hidepassword</tt><big>(</big><em>url</em>, <em>start=6</em><big>)</big><a class="reference internal" href="_modules/siam/plugin_upload.html#hidepassword"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.plugin_upload.hidepassword" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the http url with password part replaced with &#8216;*&#8217;.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="siam.plugin_upload.main">
+<tt class="descclassname">siam.plugin_upload.</tt><tt class="descname">main</tt><big>(</big><em>options</em>, <em>args</em><big>)</big><a class="reference internal" href="_modules/siam/plugin_upload.html#main"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.plugin_upload.main" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-siam.resources_rc">
+<span id="resources-rc-module"></span><h2><tt class="xref py py-mod docutils literal"><span class="pre">resources_rc</span></tt> Module<a class="headerlink" href="#module-siam.resources_rc" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="siam.resources_rc.qCleanupResources">
+<tt class="descclassname">siam.resources_rc.</tt><tt class="descname">qCleanupResources</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/siam/resources_rc.html#qCleanupResources"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.resources_rc.qCleanupResources" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="siam.resources_rc.qInitResources">
+<tt class="descclassname">siam.resources_rc.</tt><tt class="descname">qInitResources</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/siam/resources_rc.html#qInitResources"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#siam.resources_rc.qInitResources" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="siam-module">
+<h2><tt class="xref py py-mod docutils literal"><span class="pre">siam</span></tt> Module<a class="headerlink" href="#siam-module" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-siam.tst">
+<span id="tst-module"></span><h2><tt class="xref py py-mod docutils literal"><span class="pre">tst</span></tt> Module<a class="headerlink" href="#module-siam.tst" title="Permalink to this headline">¶</a></h2>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">siam Package</a><ul>
+<li><a class="reference internal" href="#id1"><tt class="docutils literal"><span class="pre">siam</span></tt> Package</a></li>
+<li><a class="reference internal" href="#module-siam.MultiProcessingLog"><tt class="docutils literal"><span class="pre">MultiProcessingLog</span></tt> Module</a></li>
+<li><a class="reference internal" href="#module-siam.hypsometry"><tt class="docutils literal"><span class="pre">hypsometry</span></tt> Module</a></li>
+<li><a class="reference internal" href="#hypsometrydialog-module"><tt class="docutils literal"><span class="pre">hypsometrydialog</span></tt> Module</a></li>
+<li><a class="reference internal" href="#hypsometrythread-module"><tt class="docutils literal"><span class="pre">hypsometrythread</span></tt> Module</a></li>
+<li><a class="reference internal" href="#module-siam.persistent"><tt class="docutils literal"><span class="pre">persistent</span></tt> Module</a></li>
+<li><a class="reference internal" href="#module-siam.plugin_upload"><tt class="docutils literal"><span class="pre">plugin_upload</span></tt> Module</a></li>
+<li><a class="reference internal" href="#module-siam.resources_rc"><tt class="docutils literal"><span class="pre">resources_rc</span></tt> Module</a></li>
+<li><a class="reference internal" href="#siam-module"><tt class="docutils literal"><span class="pre">siam</span></tt> Module</a></li>
+<li><a class="reference internal" href="#module-siam.tst"><tt class="docutils literal"><span class="pre">tst</span></tt> Module</a></li>
+</ul>
+</li>
+</ul>
+
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/siam.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="index.html">siam 0.1 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Mikhail Titov.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

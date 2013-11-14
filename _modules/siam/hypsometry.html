@@ -1,0 +1,515 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>siam.hypsometry &mdash; siam 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="siam 0.1 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">siam 0.1 documentation</a> &raquo;</li>
+          <li><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for siam.hypsometry</h1><div class="highlight"><pre>
+<span class="c">#!/usr/bin/env python</span>
+
+<span class="sd">&quot;&quot;&quot;Quick &amp; Dirty way to retrieve a hypsometry given a set of starting</span>
+<span class="sd">points and DEM.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">print_function</span>
+<span class="kn">import</span> <span class="nn">logging</span><span class="o">,</span> <span class="nn">logging.config</span>
+<span class="kn">from</span> <span class="nn">os.path</span> <span class="kn">import</span> <span class="n">dirname</span><span class="p">,</span> <span class="n">join</span>
+<span class="kn">from</span> <span class="nn">time</span> <span class="kn">import</span> <span class="n">sleep</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">argparse</span>
+<span class="kn">import</span> <span class="nn">multiprocessing</span> <span class="kn">as</span> <span class="nn">mp</span>
+<span class="kn">from</span> <span class="nn">copy</span> <span class="kn">import</span> <span class="n">deepcopy</span>
+<span class="kn">from</span> <span class="nn">MultiProcessingLog</span> <span class="kn">import</span> <span class="n">QueueHandler</span><span class="p">,</span> <span class="n">QueueListener</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">osgeo</span> <span class="kn">import</span> <span class="n">gdal</span><span class="p">,</span> <span class="n">osr</span><span class="p">,</span> <span class="n">ogr</span>
+    <span class="kn">from</span> <span class="nn">osgeo.gdalconst</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">gdal</span><span class="o">,</span> <span class="nn">osr</span><span class="o">,</span> <span class="nn">ogr</span>
+    <span class="kn">from</span> <span class="nn">gdalconst</span> <span class="kn">import</span> <span class="o">*</span>
+
+<div class="viewcode-block" id="Hypsometry"><a class="viewcode-back" href="../../siam.html#siam.hypsometry.Hypsometry">[docs]</a><span class="k">class</span> <span class="nc">Hypsometry</span><span class="p">:</span>
+    <span class="s">&quot;Hypsometry creator&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+        <span class="s">&quot;Set up DB connection&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span><span class="o">.</span><span class="n">getChild</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Using GDAL &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span><span class="p">,</span> <span class="n">gdal</span><span class="o">.</span><span class="n">VersionInfo</span><span class="p">(</span><span class="s">&quot;RELEASE_NAME&quot;</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_read</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Read in input data into memory&quot;&quot;&quot;</span>
+
+        <span class="n">connstr</span> <span class="o">=</span> <span class="s">&quot;PG:host={:s} port={:s} dbname={:s} user={:s}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dbname</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">user</span><span class="p">)</span>
+        <span class="n">conn_ogr</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">Open</span><span class="p">(</span><span class="n">connstr</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">layer</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">pts</span> <span class="o">=</span> <span class="n">conn_ogr</span><span class="o">.</span><span class="n">GetLayerByName</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">layer</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">pts</span> <span class="o">=</span> <span class="n">conn_ogr</span><span class="o">.</span><span class="n">GetLayer</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">srs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pts</span><span class="o">.</span><span class="n">GetSpatialRef</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">srs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;Failed to get spatial reference for inlets. I hope you do use the same projection!&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">SRID</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">srs</span><span class="o">.</span><span class="n">GetAttrValue</span><span class="p">(</span><span class="s">&quot;AUTHORITY&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Points will be read from &#39;</span><span class="si">%s</span><span class="s">&#39; with SRID=</span><span class="si">%d</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">connstr</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">SRID</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">part</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">fid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pts</span><span class="o">.</span><span class="n">GetFIDColumn</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">fid</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">fid</span> <span class="o">==</span> <span class="s">&#39;&#39;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;FID column is unknown!! I assume it is &#39;gid&#39;&quot;</span><span class="p">)</span>
+                <span class="n">fid</span> <span class="o">=</span> <span class="s">&#39;gid&#39;</span>
+            <span class="n">where</span> <span class="o">=</span> <span class="s">&quot;{:s} in (select gid from {:s} where pid={:d})&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">fid</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">parts_map</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">part</span><span class="p">)</span>
+            <span class="c"># it is partition table that shall be created with</span>
+            <span class="c"># necessary points only if those need to be restricted</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pts</span><span class="o">.</span><span class="n">SetAttributeFilter</span><span class="p">(</span><span class="n">where</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;Failed to restrict features for partition #</span><span class="si">%d</span><span class="s">&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">part</span><span class="p">)</span>
+
+        <span class="n">connstr_dem</span> <span class="o">=</span> <span class="n">connstr</span> <span class="o">+</span> <span class="s">&quot; table={:s} mode=2&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dem_table</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">part</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># we do have to explicitly use table name</span>
+
+            <span class="c"># though shorter it does not leverage indices</span>
+            <span class="c"># connstr_dem += &quot; where=&#39;exists ( select 1 from dem_parts where ST_Contains(geom, rast::geometry) and gid = {:d})&#39;&quot;.format(self.part)</span>
+            <span class="c"># version below depends on dem_parts</span>
+            <span class="n">connstr_dem</span> <span class="o">+=</span> <span class="s">&quot;&quot;&quot; where=&#39;rid in (</span>
+<span class="s">select rid from {:s}, {:s}</span>
+<span class="s">where ST_Contains(geom, rast::geometry)</span>
+<span class="s">  and pid = {:d})&#39;&quot;&quot;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dem_table</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dem_parts</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">part</span><span class="p">)</span>
+            <span class="c"># connstr_dem += &quot; where=&#39;rid in ( select rid from {:s}, dem_parts where ST_Contains(geom, rast::geometry) and gid = {:d})&#39;&quot;.format(self.dem_table, self.part)</span>
+<span class="c">#             connstr_dem += &quot;&quot;&quot; where=&#39;</span>
+<span class="c"># rid in (</span>
+<span class="c">#   select rid</span>
+<span class="c">#   from {:s}, dem_parts</span>
+<span class="c">#   where ST_Contains(geom, rast::geometry)</span>
+<span class="c">#     and gid = {:d})&#39;&quot;&quot;&quot;.format(&#39;dem50&#39;, self.part)</span>
+            <span class="c"># But the one below requires range (500).</span>
+
+            <span class="c"># Since temporary tables are to be created from within the</span>
+            <span class="c"># code in the future and there will be a distance</span>
+            <span class="c"># parameter, it is probably okay</span>
+
+            <span class="c"># From another POV, we can prefer the shorter version</span>
+            <span class="c"># above for the same reason!</span>
+<span class="c">#             connstr_dem += &quot;&quot;&quot; where=&#39;</span>
+<span class="c"># rid in (</span>
+<span class="c">#   select rid</span>
+<span class="c">#   from dem50</span>
+<span class="c">#   join {:s} si on ST_DWithin(rast::geometry, geom, 500)</span>
+<span class="c">#   join {:s} on si.gid = inlet_gid</span>
+<span class="c">#   where part_gid = {:d})&#39;&quot;&quot;&quot;.format(self.layer, self.parts_map, self.part)</span>
+        <span class="n">dataset</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Open</span><span class="p">(</span><span class="n">connstr_dem</span><span class="p">,</span> <span class="n">GA_ReadOnly</span> <span class="p">)</span>
+        <span class="k">if</span> <span class="n">dataset</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;Can&#39;t open </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">connstr_dem</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">geotransform</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">GetGeoTransform</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">invgeotransform</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">InvGeoTransform</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">geotransform</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">proj</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">GetProjection</span><span class="p">()</span>
+        <span class="n">srs</span> <span class="o">=</span> <span class="n">osr</span><span class="o">.</span><span class="n">SpatialReference</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">proj</span><span class="p">)</span>
+        <span class="n">SRID</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">srs</span><span class="o">.</span><span class="n">GetAttrValue</span><span class="p">(</span><span class="s">&quot;AUTHORITY&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="n">band</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">NODATA</span> <span class="o">=</span> <span class="n">band</span><span class="o">.</span><span class="n">GetNoDataValue</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Raster from &#39;</span><span class="si">%s</span><span class="s">&#39; is used with SRID=</span><span class="si">%d</span><span class="s"> and NoDATA=</span><span class="si">%f</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">connstr_dem</span><span class="p">,</span> <span class="n">SRID</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">NODATA</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">SRID</span> <span class="o">!=</span> <span class="n">SRID</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&quot;Points &amp; DEM should use same coordinate system&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">raster</span> <span class="o">=</span> <span class="n">band</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">pts</span><span class="o">.</span><span class="n">ResetReading</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pts_dict</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">z</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">pt</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pts</span><span class="p">:</span>
+            <span class="n">geom</span> <span class="o">=</span> <span class="n">pt</span><span class="o">.</span><span class="n">GetGeometryRef</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%d</span><span class="s"> =&gt; </span><span class="si">%.3f</span><span class="s">, </span><span class="si">%.3f</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">pt</span><span class="o">.</span><span class="n">GetFID</span><span class="p">(),</span> <span class="n">geom</span><span class="o">.</span><span class="n">GetX</span><span class="p">(),</span> <span class="n">geom</span><span class="o">.</span><span class="n">GetY</span><span class="p">())</span>
+
+            <span class="n">iPixel</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">invgeotransform</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span>
+                         <span class="bp">self</span><span class="o">.</span><span class="n">invgeotransform</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">geom</span><span class="o">.</span><span class="n">GetX</span><span class="p">()</span> <span class="o">+</span>
+                         <span class="bp">self</span><span class="o">.</span><span class="n">invgeotransform</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="n">geom</span><span class="o">.</span><span class="n">GetY</span><span class="p">())</span>
+            <span class="n">iLine</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">invgeotransform</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">+</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">invgeotransform</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">*</span> <span class="n">geom</span><span class="o">.</span><span class="n">GetX</span><span class="p">()</span> <span class="o">+</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">invgeotransform</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">*</span> <span class="n">geom</span><span class="o">.</span><span class="n">GetY</span><span class="p">()</span> <span class="p">);</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">raster</span><span class="p">[</span><span class="n">iLine</span><span class="p">,</span> <span class="n">iPixel</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">val</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">NODATA</span><span class="p">:</span> <span class="c"># GDAL 1.9 is broken also should not(?) compare floats</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%d</span><span class="s"> =&gt; </span><span class="si">%d</span><span class="s">, </span><span class="si">%d</span><span class="s"> : </span><span class="si">%f</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">pt</span><span class="o">.</span><span class="n">GetFID</span><span class="p">(),</span> <span class="n">iPixel</span><span class="p">,</span> <span class="n">iLine</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">pts_dict</span><span class="p">[</span><span class="n">pt</span><span class="o">.</span><span class="n">GetFID</span><span class="p">()]</span> <span class="o">=</span> <span class="p">[</span><span class="n">pt</span><span class="p">,</span> <span class="n">val</span><span class="p">]</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">z</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">IndexError</span><span class="p">:</span>
+                <span class="k">pass</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">z</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_mkmem</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set up in-memory stuff&quot;&quot;&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Creating in-memory stuff&#39;</span><span class="p">)</span>
+        <span class="n">mrd</span> <span class="o">=</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GetDriverByName</span><span class="p">(</span><span class="s">&#39;MEM&#39;</span><span class="p">)</span> <span class="c">#GTiff&#39;)#</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">inmem</span> <span class="o">=</span> <span class="n">mrd</span><span class="o">.</span><span class="n">Create</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Byte</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">gdal</span><span class="o">.</span><span class="n">CE_Failure</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">inmem</span><span class="o">.</span><span class="n">SetProjection</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">proj</span><span class="p">):</span> <span class="c">#dataset.GetProjectionRef()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&#39;Failed to set projection for in-memory raster&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">inmem</span><span class="o">.</span><span class="n">SetGeoTransform</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">geotransform</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">imb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">inmem</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">drv</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">GetDriverByName</span><span class="p">(</span><span class="s">&#39;Memory&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dst_ds</span> <span class="o">=</span> <span class="n">drv</span><span class="o">.</span><span class="n">CreateDataSource</span><span class="p">(</span><span class="s">&#39;out&#39;</span><span class="p">)</span> <span class="c"># is it a must?</span>
+
+    <span class="k">def</span> <span class="nf">_getout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Connect to shared output layer&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out_ogr</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">Open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">polys</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">out_ogr</span><span class="o">.</span><span class="n">GetLayerByName</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">table</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">polys</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&#39;Failed to get an output layer </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">table</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">z_max</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Elevation steps for a &#39;given&#39; inlet and possibly others&quot;&quot;&quot;</span>
+        <span class="n">found_any</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">while</span> <span class="n">z</span> <span class="o">&lt;=</span> <span class="n">z_max</span> <span class="ow">and</span> <span class="n">found_any</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Filtering for z=</span><span class="si">%.2f</span><span class="s"> m ...&#39;</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
+            <span class="n">tmp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">raster</span> <span class="o">&lt;=</span> <span class="n">z</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">imb</span><span class="o">.</span><span class="n">WriteArray</span><span class="p">(</span><span class="n">tmp</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">byte</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Polygonizing...&#39;</span><span class="p">)</span>
+            <span class="n">lyr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dst_ds</span><span class="o">.</span><span class="n">CreateLayer</span><span class="p">(</span><span class="s">&#39;polys&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">srs</span><span class="p">,</span> <span class="n">ogr</span><span class="o">.</span><span class="n">wkbPolygon</span><span class="p">)</span>
+            <span class="n">fd</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">FieldDefn</span><span class="p">(</span><span class="s">&#39;below&#39;</span><span class="p">,</span> <span class="n">ogr</span><span class="o">.</span><span class="n">OFTInteger</span><span class="p">)</span>
+            <span class="n">lyr</span><span class="o">.</span><span class="n">CreateField</span><span class="p">(</span> <span class="n">fd</span> <span class="p">)</span>
+            <span class="n">gdal</span><span class="o">.</span><span class="n">Polygonize</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">imb</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">lyr</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">lyr</span><span class="o">.</span><span class="n">SetAttributeFilter</span><span class="p">(</span><span class="s">&#39;below&gt;0&#39;</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;Failed to restrict polygons&quot;</span><span class="p">)</span>
+            <span class="n">found_any</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_findpoly</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="n">lyr</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dst_ds</span><span class="o">.</span><span class="n">DeleteLayer</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">z</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span>
+        <span class="k">return</span> <span class="n">z</span>
+
+    <span class="k">def</span> <span class="nf">_process_queue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Main loop to deal with elevations queue&quot;&quot;&quot;</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="o">-</span><span class="mi">9999</span>
+        <span class="k">for</span> <span class="n">z_inlet</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">z</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">z</span> <span class="o">&lt;</span> <span class="n">z_inlet</span><span class="p">:</span>
+                <span class="n">z</span> <span class="o">=</span> <span class="n">z_inlet</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Moving to next inlet elevation&quot;</span><span class="p">)</span>
+            <span class="n">z_max</span> <span class="o">=</span> <span class="n">z_inlet</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_height</span>
+            <span class="n">z</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="n">z_max</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_findpoly</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">lyr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Find polygons for inlets&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Searching for one in </span><span class="si">%d</span><span class="s"> polygons...&#39;</span><span class="p">,</span> <span class="n">lyr</span><span class="o">.</span><span class="n">GetFeatureCount</span><span class="p">())</span>
+        <span class="n">found_any</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pts_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">z</span><span class="p">:</span>
+                <span class="n">lyr</span><span class="o">.</span><span class="n">ResetReading</span><span class="p">()</span>
+                <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">lyr</span><span class="p">:</span>
+                    <span class="n">poly_geom</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">GetGeometryRef</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetGeometryRef</span><span class="p">()</span><span class="o">.</span><span class="n">Within</span><span class="p">(</span><span class="n">poly_geom</span><span class="p">):</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;Found polygon for point </span><span class="si">%d</span><span class="s"> at </span><span class="si">%.2f</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
+                        <span class="n">feat</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">Feature</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">polys</span><span class="o">.</span><span class="n">GetLayerDefn</span><span class="p">())</span>
+                        <span class="n">feat</span><span class="o">.</span><span class="n">SetField</span><span class="p">(</span><span class="s">&#39;polygon&#39;</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">GetFID</span><span class="p">())</span>
+                        <span class="n">feat</span><span class="o">.</span><span class="n">SetField</span><span class="p">(</span><span class="s">&#39;point&#39;</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+                        <span class="c"># Somehow without float() it says NotImplementedError: Wrong number of arguments for overloaded function &#39;Feature_SetField&#39;.</span>
+                        <span class="n">feat</span><span class="o">.</span><span class="n">SetField</span><span class="p">(</span><span class="s">&#39;z&#39;</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">z</span><span class="p">))</span>
+                        <span class="n">feat</span><span class="o">.</span><span class="n">SetField</span><span class="p">(</span><span class="s">&#39;stage&#39;</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">z</span> <span class="o">-</span> <span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+                        <span class="n">feat</span><span class="o">.</span><span class="n">SetGeometry</span><span class="p">(</span><span class="n">poly_geom</span><span class="p">)</span>
+                        <span class="n">area</span> <span class="o">=</span> <span class="n">poly_geom</span><span class="o">.</span><span class="n">GetArea</span><span class="p">()</span>
+                        <span class="n">feat</span><span class="o">.</span><span class="n">SetField</span><span class="p">(</span><span class="s">&#39;area&#39;</span><span class="p">,</span> <span class="n">area</span><span class="p">)</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">polys</span><span class="o">.</span><span class="n">CreateFeature</span><span class="p">(</span><span class="n">feat</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">area</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_area</span> <span class="ow">or</span> <span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">z</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_height</span><span class="p">:</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Either area (</span><span class="si">%.1f</span><span class="s">) is getting too big for </span><span class="si">%d</span><span class="s"> or it is way below z. Removing.&#39;</span><span class="p">,</span> <span class="n">area</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+                            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">pts_dict</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="c"># No need to mark if it was the last for given elevation</span>
+                            <span class="n">found_any</span> <span class="o">=</span> <span class="bp">True</span>
+                        <span class="k">break</span>
+        <span class="k">return</span> <span class="n">found_any</span>
+
+<div class="viewcode-block" id="Hypsometry.run"><a class="viewcode-back" href="../../siam.html#siam.hypsometry.Hypsometry.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_read</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mkmem</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_getout</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_process_queue</span><span class="p">()</span>
+
+    <span class="c"># def __del__(self):</span>
+    <span class="c">#     &quot;Disconnect from DB&quot;</span>
+    <span class="c">#     self._log.debug(&quot;Closing ODBC/PG connection&quot;)</span>
+    <span class="c">#     self.conn.close()</span>
+</div></div>
+<div class="viewcode-block" id="run_part"><a class="viewcode-back" href="../../siam.html#siam.hypsometry.run_part">[docs]</a><span class="k">def</span> <span class="nf">run_part</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Entry point for sub-processes.</span>
+
+<span class="sd">    Must be plain function on Windows. It can&#39;t be un-/bound function:(&quot;&quot;&quot;</span>
+    <span class="c"># root = logging.getLogger()</span>
+    <span class="c"># root.setLevel(logging.NOTSET)</span>
+    <span class="c"># _log = root.getChild(__name__)</span>
+    <span class="n">_log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+    <span class="n">_log</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;_loglevel&#39;</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">NOTSET</span><span class="p">))</span>
+    <span class="n">hndlr</span> <span class="o">=</span> <span class="n">QueueHandler</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="s">&#39;_queue&#39;</span><span class="p">])</span>
+    <span class="n">_log</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">hndlr</span><span class="p">)</span>
+    <span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Working on part </span><span class="si">%d</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="s">&#39;part&#39;</span><span class="p">])</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">Hypsometry</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+    <span class="n">h</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+    <span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Done working on part </span><span class="si">%d</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="s">&#39;part&#39;</span><span class="p">])</span>
+    <span class="n">_log</span><span class="o">.</span><span class="n">removeHandler</span><span class="p">(</span><span class="n">hndlr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Starter"><a class="viewcode-back" href="../../siam.html#siam.hypsometry.Starter">[docs]</a><span class="k">class</span> <span class="nc">Starter</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Performs initial work before spawning workers.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="n">args</span>        <span class="c"># to pass around lean copy</span>
+        <span class="c"># root = logging.getLogger()</span>
+        <span class="c"># root.setLevel(logging.NOTSET)</span>
+        <span class="c"># parent = root.getChild(__name__)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span><span class="o">.</span><span class="n">getChild</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+        <span class="n">manager</span> <span class="o">=</span> <span class="n">mp</span><span class="o">.</span><span class="n">Manager</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">queue</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">Queue</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">listener</span> <span class="o">=</span> <span class="n">QueueListener</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">queue</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Starter.mkout"><a class="viewcode-back" href="../../siam.html#siam.hypsometry.Starter.mkout">[docs]</a>    <span class="k">def</span> <span class="nf">mkout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set up output stuff&quot;&quot;&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Making output table &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">table</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">conn_ogr</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">Open</span><span class="p">(</span><span class="s">&quot;PG:host={:s} port={:s} dbname={:s} user={:s}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dbname</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">user</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">layer</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">pts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">conn_ogr</span><span class="o">.</span><span class="n">GetLayerByName</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">layer</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">pts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">conn_ogr</span><span class="o">.</span><span class="n">GetLayer</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">srs</span> <span class="o">=</span> <span class="n">pts</span><span class="o">.</span><span class="n">GetSpatialRef</span><span class="p">()</span>
+
+        <span class="n">out_ogr</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">Open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+        <span class="n">polys</span> <span class="o">=</span> <span class="n">out_ogr</span><span class="o">.</span><span class="n">CreateLayer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">table</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">srs</span><span class="p">,</span> <span class="n">ogr</span><span class="o">.</span><span class="n">wkbPolygon</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;OVERWRITE=YES&#39;</span><span class="p">,</span><span class="s">&#39;GEOMETRY_NAME=geom&#39;</span><span class="p">,</span><span class="s">&#39;FID=gid&#39;</span><span class="p">,</span><span class="s">&#39;PG_USE_COPY=YES&#39;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">polys</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&#39;Failed to create an output layer </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">table</span><span class="p">)</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">FieldDefn</span><span class="p">(</span><span class="s">&#39;z&#39;</span><span class="p">,</span> <span class="n">ogr</span><span class="o">.</span><span class="n">OFTReal</span><span class="p">)</span>
+        <span class="n">polys</span><span class="o">.</span><span class="n">CreateField</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="c"># polygon id (for a given z) + z make globally unique polygon id</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">FieldDefn</span><span class="p">(</span><span class="s">&#39;polygon&#39;</span><span class="p">,</span> <span class="n">ogr</span><span class="o">.</span><span class="n">OFTInteger</span><span class="p">)</span>
+        <span class="n">polys</span><span class="o">.</span><span class="n">CreateField</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">FieldDefn</span><span class="p">(</span><span class="s">&#39;point&#39;</span><span class="p">,</span> <span class="n">ogr</span><span class="o">.</span><span class="n">OFTInteger</span><span class="p">)</span>
+        <span class="n">polys</span><span class="o">.</span><span class="n">CreateField</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">FieldDefn</span><span class="p">(</span><span class="s">&#39;stage&#39;</span><span class="p">,</span> <span class="n">ogr</span><span class="o">.</span><span class="n">OFTReal</span><span class="p">)</span>
+        <span class="n">polys</span><span class="o">.</span><span class="n">CreateField</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">ogr</span><span class="o">.</span><span class="n">FieldDefn</span><span class="p">(</span><span class="s">&#39;area&#39;</span><span class="p">,</span> <span class="n">ogr</span><span class="o">.</span><span class="n">OFTReal</span><span class="p">)</span>
+        <span class="n">polys</span><span class="o">.</span><span class="n">CreateField</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_prepare</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set up partitions for parallel processing&quot;&quot;&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Creating partitions in &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dem_parts</span><span class="p">)</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">conn_ogr</span><span class="o">.</span><span class="n">CreateLayer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dem_parts</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">srs</span><span class="p">,</span> <span class="n">ogr</span><span class="o">.</span><span class="n">wkbPolygon</span><span class="p">,</span>
+                                          <span class="p">[</span><span class="s">&#39;OVERWRITE=YES&#39;</span><span class="p">,</span><span class="s">&#39;GEOMETRY_NAME=geom&#39;</span><span class="p">,</span><span class="s">&#39;FID=pid&#39;</span><span class="p">,</span><span class="s">&#39;PG_USE_COPY=YES&#39;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">parts</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;Failed to create a layer &#39;</span><span class="si">%s</span><span class="s">&#39; for paritions&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dem_parts</span><span class="p">)</span>
+        <span class="c"># Indices will be implicitly created for this layer</span>
+        <span class="n">where</span> <span class="o">=</span> <span class="s">&#39;&#39;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">where</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="s">&#39;and &#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">where</span>
+        <span class="n">lyr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">conn_ogr</span><span class="o">.</span><span class="n">ExecuteSQL</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">    insert into {dem_parts:s}(pid, geom)</span>
+<span class="s">    select row_number() over () as pid, (g).geom as geom</span>
+<span class="s">    from (</span>
+<span class="s">      select ST_Dump(ST_Union(rast::geometry)) as g</span>
+<span class="s">      from {side_inlets:s}, {dem_table:s}</span>
+<span class="s">        where ST_DWithin(rast::geometry, geom, {radius:f}) {where:s}</span>
+<span class="s">        ) foo returning pid;&quot;&quot;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">dem_parts</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dem_parts</span><span class="p">,</span> <span class="n">side_inlets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">layer</span><span class="p">,</span>
+                                       <span class="n">dem_table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dem_table</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">radius</span><span class="p">,</span> <span class="n">where</span><span class="o">=</span><span class="n">where</span><span class="p">))</span>
+        <span class="n">cnt</span> <span class="o">=</span> <span class="n">lyr</span><span class="o">.</span><span class="n">GetFeatureCount</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Having </span><span class="si">%d</span><span class="s"> partitions&quot;</span><span class="p">,</span> <span class="n">cnt</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Establishing mapping between inlets and partitions&quot;</span><span class="p">)</span>
+        <span class="n">where</span> <span class="o">=</span> <span class="s">&#39;&#39;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">where</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="s">&#39;where &#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">where</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">conn_ogr</span><span class="o">.</span><span class="n">ExecuteSQL</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">drop table if exists {side_inlets_parts:s};</span>
+<span class="s">create table {side_inlets_parts:s} (</span>
+<span class="s">  pid int not null,</span>
+<span class="s">  gid int primary key</span>
+<span class="s">);</span>
+<span class="s">insert into {side_inlets_parts:s}(gid, pid)</span>
+<span class="s">select gid, pid</span>
+<span class="s">from (</span>
+<span class="s">  select gid, pid, row_number() over inlet</span>
+<span class="s">  from (</span>
+<span class="s">    select variance(ST_Value(rast, i.geom)) over part, gid, pid</span>
+<span class="s">    from {dem_parts:s} p</span>
+<span class="s">        join {side_inlets:s} i on ST_Dwithin(i.geom, p.geom, {radius:f})</span>
+<span class="s">    join {dem_table:s} on ST_Intersects(i.geom, rast) {where:s}</span>
+<span class="s">    window part as (partition by pid)</span>
+<span class="s">  ) foo</span>
+<span class="s">  window inlet as (partition by gid order by variance)</span>
+<span class="s">) bar</span>
+<span class="s">where row_number = 1;</span>
+<span class="s">create index on {side_inlets_parts:s}(pid);</span>
+<span class="s">        &quot;&quot;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">side_inlets_parts</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">parts_map</span><span class="p">,</span> <span class="n">side_inlets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">layer</span><span class="p">,</span>
+                   <span class="n">dem_parts</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dem_parts</span><span class="p">,</span> <span class="n">dem_table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dem_table</span><span class="p">,</span>
+                   <span class="n">radius</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">radius</span><span class="p">,</span> <span class="n">where</span><span class="o">=</span><span class="n">where</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">cnt</span>
+
+<div class="viewcode-block" id="Starter.run"><a class="viewcode-back" href="../../siam.html#siam.hypsometry.Starter.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixup</span><span class="p">:</span>
+            <span class="c"># We have to keep output table in same database to be able</span>
+            <span class="c"># to selectively remove records. Alternatively we can</span>
+            <span class="c"># fetch list of gid using WHERE and delete those in output</span>
+            <span class="c"># table using point field.</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">mkout</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">mp</span><span class="p">:</span>
+            <span class="n">parts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prepare</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">=</span> <span class="n">mp</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">processes</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">parts</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">threads</span><span class="p">))</span>
+            <span class="c"># args = vars(args)</span>
+            <span class="k">def</span> <span class="nf">fix_part</span><span class="p">(</span><span class="n">part</span><span class="p">):</span>
+                <span class="n">out</span> <span class="o">=</span> <span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+                <span class="n">out</span><span class="p">[</span><span class="s">&#39;part&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">part</span>
+                <span class="n">out</span><span class="p">[</span><span class="s">&#39;_queue&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">queue</span>
+                <span class="k">return</span> <span class="n">out</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">pool</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">run_part</span><span class="p">,</span> <span class="p">[</span><span class="n">fix_part</span><span class="p">(</span><span class="n">x</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">parts</span><span class="p">)])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">h</span> <span class="o">=</span> <span class="n">Hypsometry</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+            <span class="n">h</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="Starter.kill"><a class="viewcode-back" href="../../siam.html#siam.hypsometry.Starter.kill">[docs]</a>    <span class="k">def</span> <span class="nf">kill</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;To be used from GUI thread to abort operations&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pool</span><span class="o">.</span><span class="n">terminate</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pool</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+</div></div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">fileConfig</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="n">dirname</span><span class="p">(</span><span class="n">__file__</span><span class="p">),</span> <span class="s">&#39;logging.conf&#39;</span><span class="p">))</span>
+    <span class="n">_log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">__file__</span><span class="p">)</span>
+
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="n">__doc__</span><span class="p">,</span>
+                                     <span class="n">formatter_class</span><span class="o">=</span><span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentDefaultsHelpFormatter</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--host&#39;</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;PGHOST&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--port&#39;</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="s">&#39;5432&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;PGPORT&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--dbname&#39;</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="s">&#39;gis&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Database name&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--user&#39;</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="s">&#39;user&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;User name to use while connecting to database. Use dot pgpass to supply a password.&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--dem-table&#39;</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="s">&#39;dem50&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Raster table name with DEM&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--dem-parts&#39;</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="s">&#39;dem_parts&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Table to be created with partition polygons&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--parts-map&#39;</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="s">&#39;side_inlets_parts&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Table with inlet-partition mapping&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--layer&#39;</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="s">&#39;side_inlets&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;A layer in --points&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--out&#39;</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="s">&#39;PG:host=localhost port=5432 dbname=gis user=user&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;An output recognizeable by OGR&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--table&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s">&#39;hypsometry&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Table name in DB defined by out. Existing table if any will be dropped!&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--max-height&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Maximum stage&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--max-area&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="mf">1e5</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Maximum area&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--step&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=.</span><span class="mo">01</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Stage step&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--radius&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Clip/search radius for partitions&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--part&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Specific partition to process. Used internally&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--where&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&quot;SQL restriction on side inlets to consider, e.g., &#39;gid in (1,2)&#39;&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--fixup&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&quot;Don&#39;t overwrite output table but delete records for points matching WHERE&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--threads&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
+                        <span class="n">default</span><span class="o">=</span><span class="n">mp</span><span class="o">.</span><span class="n">cpu_count</span><span class="p">(),</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Maximum number of parallel processes&#39;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--mp&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">,</span>
+                        <span class="n">help</span><span class="o">=</span><span class="s">&#39;Use multiprocess &amp; partitioning&#39;</span><span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="nb">vars</span><span class="p">(</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span> <span class="p">)</span>
+    <span class="n">args</span><span class="p">[</span><span class="s">&#39;_loglevel&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_log</span><span class="o">.</span><span class="n">getEffectiveLevel</span><span class="p">()</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">Starter</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+    <span class="n">s</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+    <span class="n">_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Exiting&quot;</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">siam 0.1 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Mikhail Titov.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

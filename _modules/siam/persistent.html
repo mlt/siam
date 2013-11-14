@@ -1,0 +1,220 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>siam.persistent &mdash; siam 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="siam 0.1 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">siam 0.1 documentation</a> &raquo;</li>
+          <li><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for siam.persistent</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+
+<span class="c"># ***************************************************************************</span>
+<span class="c"># persistent.py</span>
+<span class="c"># ---------------------</span>
+<span class="c"># Date : November 2013</span>
+<span class="c"># Copyright : (C) 2013 by Mikhail Titov</span>
+<span class="c"># Email : mlt at gmx dot us</span>
+<span class="c"># ***************************************************************************</span>
+<span class="c"># * *</span>
+<span class="c"># * This program is free software; you can redistribute it and/or modify *</span>
+<span class="c"># * it under the terms of the GNU General Public License as published by *</span>
+<span class="c"># * the Free Software Foundation; either version 2 of the License, or *</span>
+<span class="c"># * (at your option) any later version. *</span>
+<span class="c"># * *</span>
+<span class="c"># ***************************************************************************</span>
+
+<span class="n">__author__</span> <span class="o">=</span> <span class="s">&#39;Mikhail Titov&#39;</span>
+<span class="n">__date__</span> <span class="o">=</span> <span class="s">&#39;November 2013&#39;</span>
+<span class="n">__copyright__</span> <span class="o">=</span> <span class="s">&#39;(C) 2013, Mikhail Titov&#39;</span>
+
+<span class="c"># This will get replaced with a git SHA1 when you do a git archive</span>
+
+<span class="n">__revision__</span> <span class="o">=</span> <span class="s">&#39;$Format:%H$&#39;</span>
+
+<span class="sd">&quot;&quot;&quot;Persistent entries dialog.</span>
+
+<span class="sd">from persistent import PersistentDialog</span>
+<span class="sd">from PyQt4.uic import loadUi</span>
+<span class="sd">from PyQt4.QtCore import QSettings</span>
+<span class="sd">from os.path import dirname, join</span>
+
+<span class="sd">class MyDialog(PersistentDialog):</span>
+<span class="sd">    def __init__(self):</span>
+<span class="sd">        PersistentDialog.__init__(self)</span>
+<span class="sd">        loadUi(join(dirname(__file__), &#39;ui_mydialog.ui&#39;), self)</span>
+<span class="sd">        self._load_settings()</span>
+
+<span class="sd">    def _load_settings(self):</span>
+<span class="sd">        settings = QSettings()</span>
+<span class="sd">        settings.beginGroup(&#39;myplugin&#39;)</span>
+<span class="sd">        settings.beginGroup(&#39;mydialog&#39;)</span>
+<span class="sd">        self._loadall(settings) # magic happens here</span>
+<span class="sd">        settings.endGroup()</span>
+<span class="sd">        settings.endGroup()</span>
+
+<span class="sd">    def _save_settings(self):</span>
+<span class="sd">        settings = QSettings()</span>
+<span class="sd">        settings.beginGroup(&#39;myplugin&#39;)</span>
+<span class="sd">        settings.beginGroup(&#39;mydialog&#39;)</span>
+<span class="sd">        self._saveall(settings) # here is where magic happens</span>
+<span class="sd">        settings.endGroup()</span>
+<span class="sd">        settings.endGroup()</span>
+
+<span class="sd">    def accept(self):</span>
+<span class="sd">        super(MyDialog, self).accept()</span>
+<span class="sd">        self._save_settings()</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">PyQt4.QtGui</span> <span class="kn">import</span> <span class="n">QDialog</span>
+
+<div class="viewcode-block" id="PersistentDialog"><a class="viewcode-back" href="../../siam.html#siam.persistent.PersistentDialog">[docs]</a><span class="k">class</span> <span class="nc">PersistentDialog</span><span class="p">(</span><span class="n">QDialog</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Dialog with basic persistence using QSettings&quot;&quot;&quot;</span>
+
+    <span class="n">setters</span> <span class="o">=</span> <span class="p">{</span> <span class="s">&#39;QComboBox&#39;</span> <span class="p">:</span> <span class="s">&#39;setEditText&#39;</span><span class="p">,</span>
+                <span class="s">&#39;QDoubleSpinBox&#39;</span> <span class="p">:</span> <span class="s">&#39;setValue&#39;</span><span class="p">,</span>
+                <span class="s">&#39;QLineEdit&#39;</span> <span class="p">:</span> <span class="s">&#39;setText&#39;</span><span class="p">}</span>
+
+    <span class="n">getters</span> <span class="o">=</span> <span class="p">{</span> <span class="s">&#39;QComboBox&#39;</span> <span class="p">:</span> <span class="s">&#39;currentText&#39;</span><span class="p">,</span>
+                <span class="s">&#39;QDoubleSpinBox&#39;</span> <span class="p">:</span> <span class="s">&#39;value&#39;</span><span class="p">,</span>
+                <span class="s">&#39;QLineEdit&#39;</span> <span class="p">:</span> <span class="s">&#39;text&#39;</span><span class="p">}</span>
+
+    <span class="k">def</span> <span class="nf">__cbselect</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Re-select item in combobox if there is such val&quot;&quot;&quot;</span>
+
+        <span class="n">index</span> <span class="o">=</span> <span class="n">o</span><span class="o">.</span><span class="n">findText</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">index</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+            <span class="n">o</span><span class="o">.</span><span class="n">setCurrentIndex</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
+
+
+    <span class="n">selectors</span> <span class="o">=</span> <span class="p">{</span> <span class="s">&#39;QComboBox&#39;</span> <span class="p">:</span> <span class="n">__cbselect</span> <span class="p">}</span>
+
+<div class="viewcode-block" id="PersistentDialog.converter"><a class="viewcode-back" href="../../siam.html#siam.persistent.PersistentDialog.converter">[docs]</a>    <span class="k">class</span> <span class="nc">converter</span><span class="p">(</span><span class="nb">dict</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Dictionary for unicode conversion to QT expected classes&quot;&quot;&quot;</span>
+
+        <span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="PersistentDialog.converter.I"><a class="viewcode-back" href="../../siam.html#siam.persistent.PersistentDialog.converter.I">[docs]</a>        <span class="k">def</span> <span class="nf">I</span><span class="p">(</span><span class="n">key</span><span class="p">):</span>
+            <span class="s">&quot;Identity function&quot;</span>
+            <span class="k">return</span> <span class="n">key</span>
+</div>
+        <span class="k">def</span> <span class="nf">__missing__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">I</span>
+
+</div>
+    <span class="n">type_conv</span> <span class="o">=</span> <span class="n">converter</span><span class="p">(</span><span class="n">QDoubleSpinBox</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_loadme</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">settings</span><span class="p">,</span> <span class="n">what</span><span class="p">):</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">value</span><span class="p">(</span><span class="n">what</span><span class="p">)</span>
+        <span class="n">o</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">what</span><span class="p">)</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">o</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">setters</span><span class="p">[</span><span class="n">c</span><span class="p">])</span>
+        <span class="n">f</span><span class="p">(</span> <span class="bp">self</span><span class="o">.</span><span class="n">type_conv</span><span class="p">[</span><span class="n">c</span><span class="p">](</span><span class="n">val</span><span class="p">)</span> <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">selectors</span><span class="o">.</span><span class="n">has_key</span><span class="p">(</span><span class="n">c</span><span class="p">):</span>
+            <span class="c"># usually we deal with strings so unicode is fine</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">selectors</span><span class="p">[</span><span class="n">c</span><span class="p">](</span><span class="n">o</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_loadall</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">settings</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Load dialog entries once descended into necessary settings group&quot;&quot;&quot;</span>
+
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">settings</span><span class="o">.</span><span class="n">childKeys</span><span class="p">():</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">has_key</span><span class="p">(</span><span class="n">key</span><span class="p">):</span>
+                <span class="n">o</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loadme</span><span class="p">(</span><span class="n">settings</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_saveme</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">settings</span><span class="p">,</span> <span class="n">what</span><span class="p">):</span>
+        <span class="n">o</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">what</span><span class="p">)</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">getters</span><span class="p">[</span><span class="n">o</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">])</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="n">what</span><span class="p">,</span> <span class="n">f</span><span class="p">())</span>
+
+    <span class="k">def</span> <span class="nf">_saveall</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">settings</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Save dialog entries once descended into necessary settings group&quot;&quot;&quot;</span>
+
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__dict__</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">getters</span><span class="o">.</span><span class="n">has_key</span><span class="p">(</span><span class="n">o</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_saveme</span><span class="p">(</span><span class="n">settings</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">siam 0.1 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Mikhail Titov.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
