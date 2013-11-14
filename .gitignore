@@ -3,3 +3,4 @@
 *.log
 ui_*.py
 *_rc.py
+help/build/
