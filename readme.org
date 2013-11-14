@@ -1,0 +1,25 @@
+* Side Inlets Analysis Methods
+
+SIAM is a specialized QGIS plugin with a collection of tools for
+depressional terrain analysis.
+
+So far it can only extract polygons corresponding to stage-area
+curves.
+
+While hypsometric curves can be derived with [[http://plugins.qgis.org/plugins/hypsometry/][hypsometry plug-in]] and
+polygons can be derived with [[http://plugins.qgis.org/plugins/contour/][contour]], there are some differences:
+
+- built with high vertical resolution in mind, e.g., 1cm stage step
+  with 1m DEM, for rather flat terrain analysis
+- extracted polygons must surround given set of points, i.e., it
+  ignores same elevation areas in nearby depression
+- support for parallel processing for independent locations from day 0
+- heavily relies on PostGIS for data manipulation and parallel processing
+
+While may not be useful for general public, it features the following
+that may be of interest to other QGIS plugin developers:
+
+- multiprocessing tested to be working on MS Windows
+  - logging from sub-processes
+- funneling logging to QGIS log console
+- GUI persistence layer for QDialog entries
