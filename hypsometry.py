@@ -29,13 +29,13 @@ class Hypsometry:
         "Set up DB connection"
 
         self.__dict__.update(args)
-        self._log = logging.getLogger(self.__class__.__name__)
+        self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
         self._log.info("Using GDAL '%s'", gdal.VersionInfo("RELEASE_NAME"))
 
     def _read(self):
         """Read in input data into memory"""
 
-        connstr = "PG:dbname={:s} user={:s}".format(self.dbname, self.user)
+        connstr = "PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user)
         conn_ogr = ogr.Open(connstr)
         if not self.layer is None:
             self.pts = conn_ogr.GetLayerByName(self.layer)
@@ -224,8 +224,8 @@ def run_part(args):
     """Entry point for sub-processes.
 
     Must be plain function on Windows. It can't be un-/bound function:("""
-    _log = logging.getLogger()
-    _log.setLevel(logging.NOTSET)
+    _log = logging.getLogger(__name__)
+    _log.setLevel(args.get('_loglevel', logging.NOTSET))
     hndlr = QueueHandler(args['_queue'])
     _log.addHandler(hndlr)
     _log.info("Working on part %d", args['part'])
@@ -240,13 +240,16 @@ class Starter:
     def __init__(self, args):
         self.__dict__.update(args)
         self.args = args        # to pass around lean copy
-        self._log = logging.getLogger(self.__class__.__name__)
+        self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
+        manager = mp.Manager()
+        self.queue = manager.Queue(-1)
+        listener = QueueListener(self.queue)
 
     def mkout(self):
         """Set up output stuff"""
 
         self._log.info("Making output table '%s'", self.table)
-        self.conn_ogr = ogr.Open("PG:dbname={:s} user={:s}".format(self.dbname, self.user))
+        self.conn_ogr = ogr.Open("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
         if not self.layer is None:
             pts = self.conn_ogr.GetLayerByName(self.layer)
         else:
@@ -330,30 +333,38 @@ create index on {side_inlets_parts:s}(pid);
             self.mkout()
         if self.mp:
             parts = self._prepare()
-            pool = mp.Pool(processes = min(parts, self.threads))
+            self.pool = mp.Pool(processes = min(parts, self.threads))
             # args = vars(args)
             def fix_part(part):
                 out = deepcopy(self.args)
                 out['part'] = part
-                out['_queue'] = queue
+                out['_queue'] = self.queue
                 return out
-            pool.map(run_part, [fix_part(x+1) for x in range(parts)])
+            self.pool.map(run_part, [fix_part(x+1) for x in range(parts)])
         else:
             h = Hypsometry(self.args)
             h.run()
 
+    def kill(self):
+        """To be used from GUI thread to abort operations"""
+        self.pool.terminate()
+        self.pool.join()
+
 if __name__ == '__main__':
     logging.config.fileConfig(join(dirname(__file__), 'logging.conf'))
     _log = logging.getLogger(__name__)
-    manager = mp.Manager()
-    queue = manager.Queue(-1)
-    listener = QueueListener(queue)
 
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--host',
+                        default='localhost',
+                        help='PGHOST')
+    parser.add_argument('--port',
+                        default='5432',
+                        help='PGPORT')
     parser.add_argument('--dbname',
                         default='gis',
-                        help='Database name. Use PGHOST & PGPORT environment variables if necessary for now.')
+                        help='Database name')
     parser.add_argument('--user',
                         default='user',
                         help='User name to use while connecting to database. Use dot pgpass to supply a password.')
@@ -370,7 +381,7 @@ if __name__ == '__main__':
                         default='side_inlets',
                         help='A layer in --points')
     parser.add_argument('--out',
-                        default='PG:dbname=gis user=user',
+                        default='PG:host=localhost port=5432 dbname=gis user=user',
                         help='An output recognizeable by OGR')
     parser.add_argument('--table', default='hypsometry',
                         help='Table name in DB defined by out. Existing table if any will be dropped!')
@@ -397,7 +408,8 @@ if __name__ == '__main__':
                         help='Maximum number of parallel processes')
     parser.add_argument('--mp', action='store_true',
                         help='Use multiprocess & partitioning')
-    args = parser.parse_args()
-    s = Starter(vars(args))
+    args = vars( parser.parse_args() )
+    args['_loglevel'] = _log.getEffectiveLevel()
+    s = Starter(args)
     s.run()
     _log.info("Exiting")
