@@ -68,35 +68,14 @@ class Hypsometry:
 select rid from {:s}, {:s}
 where ST_Contains(geom, rast::geometry)
   and pid = {:d})'""".format(self.dem_table, self.dem_parts, self.part)
-            # connstr_dem += " where='rid in ( select rid from {:s}, dem_parts where ST_Contains(geom, rast::geometry) and gid = {:d})'".format(self.dem_table, self.part)
-#             connstr_dem += """ where='
-# rid in (
-#   select rid
-#   from {:s}, dem_parts
-#   where ST_Contains(geom, rast::geometry)
-#     and gid = {:d})'""".format('dem50', self.part)
-            # But the one below requires range (500).
 
-            # Since temporary tables are to be created from within the
-            # code in the future and there will be a distance
-            # parameter, it is probably okay
-
-            # From another POV, we can prefer the shorter version
-            # above for the same reason!
-#             connstr_dem += """ where='
-# rid in (
-#   select rid
-#   from dem50
-#   join {:s} si on ST_DWithin(rast::geometry, geom, 500)
-#   join {:s} on si.gid = inlet_gid
-#   where part_gid = {:d})'""".format(self.layer, self.parts_map, self.part)
         dataset = gdal.Open(connstr_dem, GA_ReadOnly )
         if dataset is None:
             self._log.critical("Can't open %s", connstr_dem)
             raise Exception()
         self.geotransform = dataset.GetGeoTransform()
         self.invgeotransform = gdal.InvGeoTransform(self.geotransform)[1]
-        self.proj = dataset.GetProjection()
+        self.proj = dataset.GetProjectionRef()
         srs = osr.SpatialReference(self.proj)
         SRID = int(srs.GetAttrValue("AUTHORITY", 1))
         band = dataset.GetRasterBand(1)
@@ -134,9 +113,9 @@ where ST_Contains(geom, rast::geometry)
         """Set up in-memory stuff"""
 
         self._log.debug('Creating in-memory stuff')
-        mrd = gdal.GetDriverByName('MEM') #GTiff')#
+        mrd = gdal.GetDriverByName('MEM')
         self.inmem = mrd.Create('', self.raster.shape[1], self.raster.shape[0], 1, gdal.GDT_Byte)
-        if gdal.CE_Failure == self.inmem.SetProjection(self.proj): #dataset.GetProjectionRef()
+        if gdal.CE_Failure == self.inmem.SetProjection(self.proj):
             self._log.critical('Failed to set projection for in-memory raster')
         self.inmem.SetGeoTransform(self.geotransform)
         self.imb = self.inmem.GetRasterBand(1)
@@ -161,8 +140,9 @@ where ST_Contains(geom, rast::geometry)
             lyr = self.dst_ds.CreateLayer('polys', self.srs, ogr.wkbPolygon)
             fd = ogr.FieldDefn('below', ogr.OFTInteger)
             lyr.CreateField( fd )
+            # TODO add mask
             gdal.Polygonize(self.imb, None, lyr, 0)
-            if lyr.SetAttributeFilter('below>0'):
+            if lyr.SetAttributeFilter('below > 0'):
                 self._log.critical("Failed to restrict polygons")
             found_any = self._findpoly(z, lyr)
             self.dst_ds.DeleteLayer(1)
