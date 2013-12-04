@@ -235,7 +235,11 @@ def run_part(args):
     _log.removeHandler(hndlr)
 
 class Starter:
-    """Performs initial work before spawning workers."""
+    """Performs initial work before spawning workers.
+
+    .. todo:: Consider OGR_TRUNCATE instead of OVERWRITE
+
+    """
 
     def __init__(self, args):
         self.__dict__.update(args)
@@ -259,20 +263,21 @@ class Starter:
         self.srs = pts.GetSpatialRef()
 
         out_ogr = ogr.Open(self.out, True)
-        polys = out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
-        if polys is None:
+        output_lyr = out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
+        if output_lyr is None:
             self._log.critical('Failed to create an output layer %s', self.table)
         fd = ogr.FieldDefn('z', ogr.OFTReal)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
         # polygon id (for a given z) + z make globally unique polygon id
         fd = ogr.FieldDefn('polygon', ogr.OFTInteger)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
         fd = ogr.FieldDefn('point', ogr.OFTInteger)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
         fd = ogr.FieldDefn('stage', ogr.OFTReal)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
         fd = ogr.FieldDefn('area', ogr.OFTReal)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
+
 
     def _prepare(self):
         """Set up partitions for parallel processing"""
@@ -381,12 +386,12 @@ if __name__ == '__main__':
                         help='Table with inlet-partition mapping')
     parser.add_argument('--layer',
                         default='side_inlets',
-                        help='A layer in --points')
+                        help='Layer name with points of interest')
     parser.add_argument('--out',
                         default='PG:host=localhost port=5432 dbname=gis user=user',
                         help='An output recognizeable by OGR')
     parser.add_argument('--table', default='hypsometry',
-                        help='Table name in DB defined by out. Existing table if any will be dropped!')
+                        help='Table name in DB defined by OUT. Existing table if any will be dropped!')
     parser.add_argument('--max-height', type=float,
                         default=2,
                         help='Maximum stage')
