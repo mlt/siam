@@ -228,7 +228,7 @@ ORDER BY table_schema,table_name;""")
             where=None,
             threads=mp.cpu_count(),
             mp=True,
-            find_bottoms=self.checkBoxFindBottoms.checkState(),
+            find_bottom=self.checkBoxFindBottom.checkState(),
             _loglevel=self._log.getEffectiveLevel()
         )
         self.extractor = Worker(args)
