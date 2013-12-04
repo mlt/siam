@@ -155,7 +155,7 @@ where ST_Contains(geom, rast::geometry)
         found_any = True
         while z <= z_max and found_any:
             self._log.debug('Filtering for z=%.2f m ...', z)
-            tmp = self.raster <= z
+            tmp = (self.raster <= z) & ~np.isclose(self.raster, self.NODATA)
             self.imb.WriteArray(tmp.astype(np.byte))
             self._log.debug('Polygonizing...')
             lyr = self.dst_ds.CreateLayer('polys', self.srs, ogr.wkbPolygon)
