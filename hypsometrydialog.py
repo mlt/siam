@@ -69,7 +69,7 @@ class HypsometryDialog(PersistentDialog):
         self.statusBar.addWidget(self.labelTime)
         self.verticalLayout.addWidget(self.statusBar)
         self.tic = 0
-        # self.statusBar.showMessage('ready')
+        self.buttonAbort.setEnabled(False)
 
     # def event(self, e):
     #     if e.type() == QtCore.QEvent.StatusTip:
@@ -228,6 +228,7 @@ ORDER BY table_schema,table_name;""")
             where=None,
             threads=mp.cpu_count(),
             mp=True,
+            find_bottoms=self.checkBoxFindBottoms.checkState(),
             _loglevel=self._log.getEffectiveLevel()
         )
         self.extractor = Worker(args)
