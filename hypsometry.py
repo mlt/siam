@@ -30,7 +30,6 @@ class Hypsometry:
 
         self.__dict__.update(args)
         self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
-        self._log.info("Using GDAL '%s'", gdal.VersionInfo("RELEASE_NAME"))
 
     def _read(self):
         """Read in input data into memory"""
@@ -50,7 +49,7 @@ class Hypsometry:
         if not self.part is None:
             fid = self.pts.GetFIDColumn()
             if fid is None or fid == '':
-                self._log.critical("FID column is unknown!! I assume it is 'gid'")
+                self._log.warning("FID column for '%s' is unknown!! I assume it is 'gid'", self.dem_parts)
                 fid = 'gid'
             where = "{:s} in (select gid from {:s} where pid={:d})".format(fid, self.parts_map, self.part)
             # it is partition table that shall be created with
@@ -102,14 +101,15 @@ where ST_Contains(geom, rast::geometry)
         SRID = int(srs.GetAttrValue("AUTHORITY", 1))
         band = dataset.GetRasterBand(1)
         self.NODATA = band.GetNoDataValue()
-        self._log.info("Raster from '%s' is used with SRID=%d and NoDATA=%f", connstr_dem, SRID, self.NODATA)
+        self._log.debug("Raster from '%s' is used with SRID=%d and NoDATA=%f", connstr_dem, SRID, self.NODATA)
         if self.SRID != SRID:
             raise Exception("Points & DEM should use same coordinate system")
         self.raster = band.ReadAsArray()
 
         self.pts.ResetReading()
-        self.pts_dict = dict()
-        self.z = []
+        self.pts_dict = dict()  # inlet FID => (feature, elevation)
+        self.z = []             # inlet elevations in ascending order
+
         for pt in self.pts:
             geom = pt.GetGeometryRef()
             self._log.debug("%d => %.3f, %.3f", pt.GetFID(), geom.GetX(), geom.GetY())
@@ -189,7 +189,7 @@ where ST_Contains(geom, rast::geometry)
                 for p in lyr:
                     poly_geom = p.GetGeometryRef()
                     if v[0].GetGeometryRef().Within(poly_geom):
-                        self._log.info('Found polygon for point %d at %.2f', k, z)
+                        self._log.debug('Found polygon for point %d at %.2f', k, z)
                         feat = ogr.Feature(self.polys.GetLayerDefn())
                         feat.SetField('polygon', p.GetFID())
                         feat.SetField('point', k)
@@ -241,6 +241,8 @@ class Starter:
         self.__dict__.update(args)
         self.args = args        # to pass around lean copy
         self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
+        self._log.info("Using GDAL '%s'", gdal.VersionInfo("RELEASE_NAME"))
+
         manager = mp.Manager()
         self.queue = manager.Queue(-1)
         listener = QueueListener(self.queue)
