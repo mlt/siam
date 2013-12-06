@@ -289,6 +289,7 @@ class Starter:
         manager = mp.Manager()
         self.queue = manager.Queue(-1)
         listener = QueueListener(self.queue)
+        self.pool = None
 
     def mkout(self):
         """Set up output stuff"""
@@ -420,8 +421,10 @@ create index on {side_inlets_parts:s}(pid);
 
     def kill(self):
         """To be used from GUI thread to abort operations"""
-        self.pool.terminate()
-        self.pool.join()
+        if not self.pool is None:
+            self.pool.terminate()
+            self.pool.join()
+            # self.pool = None
 
 if __name__ == '__main__':
     logging.config.fileConfig(join(dirname(__file__), 'logging.conf'))
