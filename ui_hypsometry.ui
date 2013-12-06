@@ -340,6 +340,9 @@ p, li { white-space: pre-wrap; }
      </item>
      <item row="6" column="0" colspan="2">
       <widget class="QCheckBox" name="checkBoxFindBottom">
+       <property name="toolTip">
+        <string>Aggregate POIs buffered with a given radius into partitions if unchecked</string>
+       </property>
        <property name="text">
         <string>Find depression bottoms in existing partitions</string>
        </property>
