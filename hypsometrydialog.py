@@ -82,7 +82,7 @@ class HypsometryDialog(PersistentDialog):
         self.labelTime.setText('Elapsed: {:d}s'.format(int(time.time()-self.tic)))
 
     @QtCore.pyqtSlot(str)
-    def on_cbConnection_activated(self, name):
+    def on_cbConnection_currentIndexChanged(self, name):
         settings = QtCore.QSettings()
         settings.beginGroup('PostgreSQL')
         settings.beginGroup('connections')
@@ -149,7 +149,6 @@ ORDER BY table_schema,table_name;""")
         settings.endGroup()
         if selected:
             self.cbConnection.setCurrentIndex( self.cbConnection.findText(selected) )
-            self.on_cbConnection_activated( selected )
 
         settings.beginGroup('siam')
         settings.beginGroup('hypsometry')
