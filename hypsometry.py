@@ -136,14 +136,15 @@ insert into {layer:s} (z, geom, pid)
 select (gv).val, ST_Centroid((gv).geom) geom, {pid:d}
 from (
   select ST_DumpAsPolygons(ST_Union(ST_Clip(rast, geom))) gv
-  from dem50, depressions
+  from {dem:s}, {poly:s}
   where ST_Intersects(rast, geom)
         and gid={pid:d}
   group by gid
 ) foo
 order by (gv).val
 limit 1
-returning gid, z, geom;""".format(layer=self.layer, pid=self.part))
+        returning gid, z, geom;""".format(
+            layer=self.layer, pid=self.part, dem=self.dem_table, poly=self.dem_parts))
         pt = lyr.GetNextFeature()
         g = pt.GetGeometryRef()
         # self._log.info("We got gid={:d} z={:f}".format(pt.GetField('gid'), pt.GetField('z')))
@@ -296,9 +297,11 @@ class Starter:
 
         self._log.info("Making output table '%s'", self.table)
         self.conn_ogr = ogr.Open("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
+        self._log.info("blah %d", self.find_bottom)
         if not self.layer is None:
             if self.find_bottom:
                 lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
+                self._log.info("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
             else:
                 lyr = self.conn_ogr.GetLayerByName(self.layer)
         else:
