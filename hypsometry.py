@@ -342,9 +342,6 @@ class Starter:
         """Set up partitions for parallel processing"""
 
         if self.find_bottom:
-            # FIXME We rely heavily on consecutive numbering of
-            # partitions starting from 1 when feeding to worker
-            # processes later
             self._log.info("Counting existing partitions in '%s'", self.dem_parts)
             lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
         else:
@@ -393,11 +390,18 @@ create index on {side_inlets_parts:s}(pid);
                        radius=self.radius, where=where))
             # self.conn_ogr.ReleaseResultSet(map_lyr)
 
-        cnt = lyr.GetFeatureCount()
+        lyr.ResetReading()
+        feat = lyr.GetNextFeature()
+        out = []
+        while not feat is None:
+            out.append(feat.GetFID())
+            feat = lyr.GetNextFeature()
+
+        cnt = len(out)
         self._log.debug("Having %d partitions", cnt)
         # if not self.find_bottom:
         #     self.conn_ogr.ReleaseResultSet(lyr)
-        return cnt
+        return out
 
     def run(self):
         if self.fixup:
@@ -410,14 +414,14 @@ create index on {side_inlets_parts:s}(pid);
             self.mkout()
         if self.mp:
             parts = self._prepare()
-            self.pool = mp.Pool(processes = min(parts, self.threads))
+            self.pool = mp.Pool(processes = min(len(parts), self.threads)) # is it that bad to have extra dormant workers??
             # args = vars(args)
             def fix_part(part):
                 out = deepcopy(self.args)
                 out['part'] = part
                 out['_queue'] = self.queue
                 return out
-            self.pool.map(run_part, [fix_part(x+1) for x in range(parts)])
+            self.pool.map(run_part, [fix_part(x) for x in parts])
         else:
             h = Hypsometry(self.args)
             h.run()
