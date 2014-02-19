@@ -30,86 +30,83 @@ class Hypsometry:
 
         self.__dict__.update(args)
         self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
-        self._log.info("Using GDAL '%s'", gdal.VersionInfo("RELEASE_NAME"))
 
     def _read(self):
         """Read in input data into memory"""
 
         connstr = "PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user)
-        conn_ogr = ogr.Open(connstr)
-        if not self.layer is None:
-            self.pts = conn_ogr.GetLayerByName(self.layer)
-        else:
-            self.pts = conn_ogr.GetLayer()
-        self.srs = self.pts.GetSpatialRef()
-        if self.srs is None:
-            self._log.warn("Failed to get spatial reference for inlets. I hope you do use the same projection!")
-        else:
-            self.SRID = int(self.srs.GetAttrValue("AUTHORITY", 1))
-            self._log.info("Points will be read from '%s' with SRID=%d", connstr, self.SRID)
-        if not self.part is None:
-            fid = self.pts.GetFIDColumn()
-            if fid is None or fid == '':
-                self._log.critical("FID column is unknown!! I assume it is 'gid'")
-                fid = 'gid'
-            where = "{:s} in (select gid from {:s} where pid={:d})".format(fid, self.parts_map, self.part)
-            # it is partition table that shall be created with
-            # necessary points only if those need to be restricted
-            if self.pts.SetAttributeFilter(where):
-                self._log.critical("Failed to restrict features for partition #%d", self.part)
-
         connstr_dem = connstr + " table={:s} mode=2".format(self.dem_table)
-        if not self.part is None:
-            # we do have to explicitly use table name
-
-            # though shorter it does not leverage indices
-            # connstr_dem += " where='exists ( select 1 from dem_parts where ST_Contains(geom, rast::geometry) and gid = {:d})'".format(self.part)
-            # version below depends on dem_parts
+        self.conn_ogr = ogr.Open(connstr)
+        if self.find_bottom:
+            parts = self.conn_ogr.GetLayerByName(self.dem_parts)
+            self.srs = parts.GetSpatialRef()
+            if self.srs is None:
+                self._log.warn("Failed to get spatial reference for partitions. I hope you do use the same projection with DEM!")
+            else:
+                self.SRID = int(self.srs.GetAttrValue("AUTHORITY", 1))
+                self._log.debug("Partitions will be read from '%s' with SRID=%d", connstr, self.SRID)
+            fid = parts.GetFIDColumn()
+            if fid is None or fid == '':
+                self._log.warning("FID column for '%s' is unknown!! I assume it is 'gid'", self.dem_parts)
+                fid = 'gid'
             connstr_dem += """ where='rid in (
+select rid from {:s}, {:s}
+where ST_Intersects(geom, rast::geometry)
+  and {:s} = {:d})'""".format(self.dem_table, self.dem_parts, fid, self.part)
+        else:
+            if not self.layer is None:
+                self.pts = self.conn_ogr.GetLayerByName(self.layer)
+            else:
+                self.pts = self.conn_ogr.GetLayer()
+            self.srs = self.pts.GetSpatialRef()
+            if self.srs is None:
+                self._log.warn("Failed to get spatial reference for inlets. I hope you do use the same projection with DEM!")
+            else:
+                self.SRID = int(self.srs.GetAttrValue("AUTHORITY", 1))
+                self._log.info("Points will be read from '%s' with SRID=%d", connstr, self.SRID)
+            if not self.part is None:
+                fid = self.pts.GetFIDColumn()
+                if fid is None or fid == '':
+                    self._log.critical("FID column is unknown!! I assume it is 'gid'")
+                    fid = 'gid'
+                where = "{:s} in (select gid from {:s} where pid={:d})".format(fid, self.parts_map, self.part)
+                # it is partition table that shall be created with
+                # necessary points only if those need to be restricted
+                if self.pts.SetAttributeFilter(where):
+                    self._log.critical("Failed to restrict features for partition #%d", self.part)
+            if not self.part is None:
+                connstr_dem += """ where='rid in (
 select rid from {:s}, {:s}
 where ST_Contains(geom, rast::geometry)
   and pid = {:d})'""".format(self.dem_table, self.dem_parts, self.part)
-            # connstr_dem += " where='rid in ( select rid from {:s}, dem_parts where ST_Contains(geom, rast::geometry) and gid = {:d})'".format(self.dem_table, self.part)
-#             connstr_dem += """ where='
-# rid in (
-#   select rid
-#   from {:s}, dem_parts
-#   where ST_Contains(geom, rast::geometry)
-#     and gid = {:d})'""".format('dem50', self.part)
-            # But the one below requires range (500).
 
-            # Since temporary tables are to be created from within the
-            # code in the future and there will be a distance
-            # parameter, it is probably okay
-
-            # From another POV, we can prefer the shorter version
-            # above for the same reason!
-#             connstr_dem += """ where='
-# rid in (
-#   select rid
-#   from dem50
-#   join {:s} si on ST_DWithin(rast::geometry, geom, 500)
-#   join {:s} on si.gid = inlet_gid
-#   where part_gid = {:d})'""".format(self.layer, self.parts_map, self.part)
         dataset = gdal.Open(connstr_dem, GA_ReadOnly )
         if dataset is None:
             self._log.critical("Can't open %s", connstr_dem)
             raise Exception()
         self.geotransform = dataset.GetGeoTransform()
         self.invgeotransform = gdal.InvGeoTransform(self.geotransform)[1]
-        self.proj = dataset.GetProjection()
+        self.proj = dataset.GetProjectionRef()
         srs = osr.SpatialReference(self.proj)
         SRID = int(srs.GetAttrValue("AUTHORITY", 1))
         band = dataset.GetRasterBand(1)
         self.NODATA = band.GetNoDataValue()
-        self._log.info("Raster from '%s' is used with SRID=%d and NoDATA=%f", connstr_dem, SRID, self.NODATA)
+        self._log.debug("Raster from '%s' is used with SRID=%d and NoDATA=%f", connstr_dem, SRID, self.NODATA)
         if self.SRID != SRID:
             raise Exception("Points & DEM should use same coordinate system")
         self.raster = band.ReadAsArray()
 
+    def _find_pixels(self):
+        """Read raster values for POIs.
+
+Perhaps would be better to use SQL but this way we hopefully can use a
+ shapefile for non --mp version.
+
+        """
         self.pts.ResetReading()
-        self.pts_dict = dict()
-        self.z = []
+        self.pts_dict = dict()  # inlet FID => (feature, elevation)
+        self.z = []             # inlet elevations in ascending order
+
         for pt in self.pts:
             geom = pt.GetGeometryRef()
             self._log.debug("%d => %.3f, %.3f", pt.GetFID(), geom.GetX(), geom.GetY())
@@ -130,13 +127,43 @@ where ST_Contains(geom, rast::geometry)
                 pass
         self.z.sort()
 
+    def _mk_bottom_lyr(self):
+        """Find bottom and append it to existing table created by Starter"""
+
+        # self._log.debug('Finding lowest point in partition {:d}'.format(self.part))
+        lyr = self.conn_ogr.ExecuteSQL("""
+insert into {layer:s} (z, geom, pid)
+select (gv).val, ST_Centroid((gv).geom) geom, {pid:d}
+from (
+  select ST_DumpAsPolygons(ST_Union(ST_Clip(rast, geom))) gv
+  from {dem:s}, {poly:s}
+  where ST_Intersects(rast, geom)
+        and gid={pid:d}
+  group by gid
+) foo
+order by (gv).val
+limit 1
+        returning gid, z, geom;""".format(
+            layer=self.layer, pid=self.part, dem=self.dem_table, poly=self.dem_parts))
+        pt = lyr.GetNextFeature()
+        g = pt.GetGeometryRef()
+        # self._log.info("We got gid={:d} z={:f}".format(pt.GetField('gid'), pt.GetField('z')))
+        # self._log.info("fid=%d, x=%f", pt.GetFID(), g.GetX())
+        z = pt.GetField('z')
+        self.z = [ z ]
+        # For now we use partition number as we assume 1 bottom per
+        # partition. However we should use generated
+        # pt.GetField('gid') and use partition-bottom mapping table.
+        self.pts_dict = { self.part : (pt, z)}
+        self.conn_ogr.ReleaseResultSet(lyr)
+
     def _mkmem(self):
         """Set up in-memory stuff"""
 
         self._log.debug('Creating in-memory stuff')
-        mrd = gdal.GetDriverByName('MEM') #GTiff')#
+        mrd = gdal.GetDriverByName('MEM')
         self.inmem = mrd.Create('', self.raster.shape[1], self.raster.shape[0], 1, gdal.GDT_Byte)
-        if gdal.CE_Failure == self.inmem.SetProjection(self.proj): #dataset.GetProjectionRef()
+        if gdal.CE_Failure == self.inmem.SetProjection(self.proj):
             self._log.critical('Failed to set projection for in-memory raster')
         self.inmem.SetGeoTransform(self.geotransform)
         self.imb = self.inmem.GetRasterBand(1)
@@ -155,14 +182,15 @@ where ST_Contains(geom, rast::geometry)
         found_any = True
         while z <= z_max and found_any:
             self._log.debug('Filtering for z=%.2f m ...', z)
-            tmp = self.raster <= z
+            tmp = (self.raster <= z) & ~np.isclose(self.raster, self.NODATA)
             self.imb.WriteArray(tmp.astype(np.byte))
             self._log.debug('Polygonizing...')
             lyr = self.dst_ds.CreateLayer('polys', self.srs, ogr.wkbPolygon)
             fd = ogr.FieldDefn('below', ogr.OFTInteger)
             lyr.CreateField( fd )
+            # TODO add mask
             gdal.Polygonize(self.imb, None, lyr, 0)
-            if lyr.SetAttributeFilter('below>0'):
+            if lyr.SetAttributeFilter('below > 0'):
                 self._log.critical("Failed to restrict polygons")
             found_any = self._findpoly(z, lyr)
             self.dst_ds.DeleteLayer(1)
@@ -189,7 +217,7 @@ where ST_Contains(geom, rast::geometry)
                 for p in lyr:
                     poly_geom = p.GetGeometryRef()
                     if v[0].GetGeometryRef().Within(poly_geom):
-                        self._log.info('Found polygon for point %d at %.2f', k, z)
+                        self._log.debug('Found polygon for point %d at %.2f', k, z)
                         feat = ogr.Feature(self.polys.GetLayerDefn())
                         feat.SetField('polygon', p.GetFID())
                         feat.SetField('point', k)
@@ -211,6 +239,18 @@ where ST_Contains(geom, rast::geometry)
 
     def run(self):
         self._read()
+        if self.find_bottom:
+        # We already have dataset read so we can find first
+        # whatever lowest point is there. If this won't work for
+        # some reason, we can use SQL and find centroid of first
+        # polygon representing points with lowest elevation.
+        #
+        # However we also have to check for containment later and
+        # return found bottoms to use. So we got to have a layer
+        # anyway.
+            self._mk_bottom_lyr()
+        else:
+            self._find_pixels()
         self._mkmem()
         self._getout()
         self._process_queue()
@@ -235,68 +275,96 @@ def run_part(args):
     _log.removeHandler(hndlr)
 
 class Starter:
-    """Performs initial work before spawning workers."""
+    """Performs initial work before spawning workers.
+
+    .. todo:: Consider OGR_TRUNCATE instead of OVERWRITE
+
+    """
 
     def __init__(self, args):
         self.__dict__.update(args)
         self.args = args        # to pass around lean copy
         self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
+        self._log.info("Using GDAL '%s'", gdal.VersionInfo("RELEASE_NAME"))
+
         manager = mp.Manager()
         self.queue = manager.Queue(-1)
         listener = QueueListener(self.queue)
+        self.pool = None
 
     def mkout(self):
         """Set up output stuff"""
 
         self._log.info("Making output table '%s'", self.table)
         self.conn_ogr = ogr.Open("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
+        self._log.info("blah %d", self.find_bottom)
         if not self.layer is None:
-            pts = self.conn_ogr.GetLayerByName(self.layer)
+            if self.find_bottom:
+                lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
+                self._log.info("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
+            else:
+                lyr = self.conn_ogr.GetLayerByName(self.layer)
         else:
-            pts = self.conn_ogr.GetLayer()
-        self.srs = pts.GetSpatialRef()
+            lyr = self.conn_ogr.GetLayer()
+        self.srs = lyr.GetSpatialRef()
 
         out_ogr = ogr.Open(self.out, True)
-        polys = out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
-        if polys is None:
+        output_lyr = out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
+        if output_lyr is None:
             self._log.critical('Failed to create an output layer %s', self.table)
         fd = ogr.FieldDefn('z', ogr.OFTReal)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
         # polygon id (for a given z) + z make globally unique polygon id
         fd = ogr.FieldDefn('polygon', ogr.OFTInteger)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
         fd = ogr.FieldDefn('point', ogr.OFTInteger)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
         fd = ogr.FieldDefn('stage', ogr.OFTReal)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
         fd = ogr.FieldDefn('area', ogr.OFTReal)
-        polys.CreateField(fd)
+        output_lyr.CreateField(fd)
+
+        if self.find_bottom:
+            self._log.info("Creating layer for POIs in '%s'", self.layer)
+            pts_lyr = self.conn_ogr.CreateLayer(self.layer, self.srs, ogr.wkbPoint, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
+            if pts_lyr is None:
+                self._log.critical('Failed to create a point layer %s', self.layer)
+            fd = ogr.FieldDefn('z', ogr.OFTReal)
+            pts_lyr.CreateField(fd)
+            # For now, we have a single bottom per partition, but it
+            # may change in the future as we pick up other smaller
+            # nested depressions in this case we need a separate field
+            # to mark partition/depression from ArcHydro it sits in.
+            fd = ogr.FieldDefn('pid', ogr.OFTInteger)
+            pts_lyr.CreateField(fd)
 
     def _prepare(self):
         """Set up partitions for parallel processing"""
 
-        self._log.info("Creating partitions in '%s'", self.dem_parts)
-        parts = self.conn_ogr.CreateLayer(self.dem_parts, self.srs, ogr.wkbPolygon,
-                                          ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=pid','PG_USE_COPY=YES'])
-        if parts is None:
-            self._log.critical("Failed to create a layer '%s' for paritions", self.dem_parts)
-        # Indices will be implicitly created for this layer
-        where = '' if self.where is None else 'and ' + self.where
-        lyr = self.conn_ogr.ExecuteSQL("""
-    insert into {dem_parts:s}(pid, geom)
-    select row_number() over () as pid, (g).geom as geom
-    from (
-      select ST_Dump(ST_Union(rast::geometry)) as g
-      from {side_inlets:s}, {dem_table:s}
-        where ST_DWithin(rast::geometry, geom, {radius:f}) {where:s}
-        ) foo returning pid;""".format(dem_parts=self.dem_parts, side_inlets=self.layer,
-                                       dem_table=self.dem_table, radius=self.radius, where=where))
-        cnt = lyr.GetFeatureCount()
-        self._log.debug("Having %d partitions", cnt)
+        if self.find_bottom:
+            self._log.info("Counting existing partitions in '%s'", self.dem_parts)
+            lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
+        else:
+            self._log.info("Creating partitions in '%s'", self.dem_parts)
+            lyr = self.conn_ogr.CreateLayer(self.dem_parts, self.srs, ogr.wkbPolygon,
+                                              ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=pid','PG_USE_COPY=YES'])
+            if lyr is None:
+                self._log.critical("Failed to create a layer '%s' for partitions", self.dem_parts)
+            # Indices will be implicitly created for this layer
+            where = '' if self.where is None else 'and ' + self.where
+            lyr = self.conn_ogr.ExecuteSQL("""
+insert into {dem_parts:s}(pid, geom)
+select row_number() over () as pid, (g).geom as geom
+from (
+  select ST_Dump(ST_Union(rast::geometry)) as g
+  from {side_inlets:s}, {dem_table:s}
+    where ST_DWithin(rast::geometry, geom, {radius:f}) {where:s}
+) foo returning pid;""".format(dem_parts=self.dem_parts, side_inlets=self.layer,
+                               dem_table=self.dem_table, radius=self.radius, where=where))
 
-        self._log.info("Establishing mapping between inlets and partitions")
-        where = '' if self.where is None else 'where ' + self.where
-        self.conn_ogr.ExecuteSQL("""
+            self._log.info("Establishing mapping between inlets and partitions")
+            where = '' if self.where is None else 'where ' + self.where
+            map_lyr = self.conn_ogr.ExecuteSQL("""
 drop table if exists {side_inlets_parts:s};
 create table {side_inlets_parts:s} (
   pid int not null,
@@ -317,10 +385,23 @@ from (
 ) bar
 where row_number = 1;
 create index on {side_inlets_parts:s}(pid);
-        """.format(side_inlets_parts=self.parts_map, side_inlets=self.layer,
-                   dem_parts=self.dem_parts, dem_table=self.dem_table,
-                   radius=self.radius, where=where))
-        return cnt
+            """.format(side_inlets_parts=self.parts_map, side_inlets=self.layer,
+                       dem_parts=self.dem_parts, dem_table=self.dem_table,
+                       radius=self.radius, where=where))
+            # self.conn_ogr.ReleaseResultSet(map_lyr)
+
+        lyr.ResetReading()
+        feat = lyr.GetNextFeature()
+        out = []
+        while not feat is None:
+            out.append(feat.GetFID())
+            feat = lyr.GetNextFeature()
+
+        cnt = len(out)
+        self._log.debug("Having %d partitions", cnt)
+        # if not self.find_bottom:
+        #     self.conn_ogr.ReleaseResultSet(lyr)
+        return out
 
     def run(self):
         if self.fixup:
@@ -333,22 +414,24 @@ create index on {side_inlets_parts:s}(pid);
             self.mkout()
         if self.mp:
             parts = self._prepare()
-            self.pool = mp.Pool(processes = min(parts, self.threads))
+            self.pool = mp.Pool(processes = min(len(parts), self.threads)) # is it that bad to have extra dormant workers??
             # args = vars(args)
             def fix_part(part):
                 out = deepcopy(self.args)
                 out['part'] = part
                 out['_queue'] = self.queue
                 return out
-            self.pool.map(run_part, [fix_part(x+1) for x in range(parts)])
+            self.pool.map(run_part, [fix_part(x) for x in parts])
         else:
             h = Hypsometry(self.args)
             h.run()
 
     def kill(self):
         """To be used from GUI thread to abort operations"""
-        self.pool.terminate()
-        self.pool.join()
+        if not self.pool is None:
+            self.pool.terminate()
+            self.pool.join()
+            # self.pool = None
 
 if __name__ == '__main__':
     logging.config.fileConfig(join(dirname(__file__), 'logging.conf'))
@@ -379,12 +462,14 @@ if __name__ == '__main__':
                         help='Table with inlet-partition mapping')
     parser.add_argument('--layer',
                         default='side_inlets',
-                        help='A layer in --points')
+                        help='Layer name with points of interest')
+    parser.add_argument('--find-bottom', action='store_true',
+                        help='Create LAYER (will overwrite!) with POIs in lowest points of existing partitions')
     parser.add_argument('--out',
                         default='PG:host=localhost port=5432 dbname=gis user=user',
                         help='An output recognizeable by OGR')
     parser.add_argument('--table', default='hypsometry',
-                        help='Table name in DB defined by out. Existing table if any will be dropped!')
+                        help='Table name in DB defined by OUT. Existing table if any will be dropped!')
     parser.add_argument('--max-height', type=float,
                         default=2,
                         help='Maximum stage')
@@ -407,8 +492,11 @@ if __name__ == '__main__':
                         default=mp.cpu_count(),
                         help='Maximum number of parallel processes')
     parser.add_argument('--mp', action='store_true',
-                        help='Use multiprocess & partitioning')
-    args = vars( parser.parse_args() )
+                        help='Use multiprocess & partitioning. This is required if --find-bottom is used.')
+    # parser.add_argument('--verbose', action='store_true',
+    #                     help='Drop logging level to DEBUG')
+    args = parser.parse_args()
+    args = vars(args)
     args['_loglevel'] = _log.getEffectiveLevel()
     s = Starter(args)
     s.run()

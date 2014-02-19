@@ -57,7 +57,6 @@ class HypsometryDialog(PersistentDialog):
 
         self._load_settings()
 
-        self.progressBar.hide()
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(2000)
         # self.timer.setTimerType(QtCore.VeryCoarseTimer) # QT5
@@ -68,10 +67,9 @@ class HypsometryDialog(PersistentDialog):
         # self.labelTime.setFrameShape(QtGui.QFrame.NoFrame)
         self.labelTime.setText('Ready')
         self.statusBar.addWidget(self.labelTime)
-        self.statusBar.addWidget(self.progressBar)
         self.verticalLayout.addWidget(self.statusBar)
         self.tic = 0
-        # self.statusBar.showMessage('ready')
+        self.buttonAbort.setEnabled(False)
 
     # def event(self, e):
     #     if e.type() == QtCore.QEvent.StatusTip:
@@ -84,7 +82,7 @@ class HypsometryDialog(PersistentDialog):
         self.labelTime.setText('Elapsed: {:d}s'.format(int(time.time()-self.tic)))
 
     @QtCore.pyqtSlot(str)
-    def on_cbConnection_activated(self, name):
+    def on_cbConnection_currentIndexChanged(self, name):
         settings = QtCore.QSettings()
         settings.beginGroup('PostgreSQL')
         settings.beginGroup('connections')
@@ -151,7 +149,6 @@ ORDER BY table_schema,table_name;""")
         settings.endGroup()
         if selected:
             self.cbConnection.setCurrentIndex( self.cbConnection.findText(selected) )
-            self.on_cbConnection_activated( selected )
 
         settings.beginGroup('siam')
         settings.beginGroup('hypsometry')
@@ -230,6 +227,7 @@ ORDER BY table_schema,table_name;""")
             where=None,
             threads=mp.cpu_count(),
             mp=True,
+            find_bottom=self.checkBoxFindBottom.checkState(),
             _loglevel=self._log.getEffectiveLevel()
         )
         self.extractor = Worker(args)
@@ -239,21 +237,16 @@ ORDER BY table_schema,table_name;""")
         QtCore.QObject.connect(self.extractor, QtCore.SIGNAL("finished()"),
                                self.thread.quit)
         self.extractor.moveToThread(self.thread)
-        self.progressBar.setMaximum(0)
         self.buttonRun.setEnabled(False)
         self.buttonAbort.setEnabled(True)
         self.thread.start()
         self.tic = time.time()
-        # self.progressBar.show()
-        # self._log.addHandler(self.handler)
         self.timer.start()
 
     def on_finished(self):
         self.timer.stop()
         # self._log.removeHandler(self.handler)
         self.tic = 0
-        self.progressBar.setMaximum(1)
-        # self.progressBar.setValue(1)
         self.buttonRun.setEnabled(True)
         self.buttonAbort.setEnabled(False)
 
