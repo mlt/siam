@@ -7,7 +7,7 @@ points and DEM.
 
 from __future__ import print_function
 import logging.config
-from os.path import dirname, join
+from os.path import dirname, join, exists
 import numpy as np
 import argparse
 import multiprocessing as mp
@@ -433,7 +433,10 @@ create index on {side_inlets_parts:s}(pid);
             # self.pool = None
 
 if __name__ == '__main__':
-    logging.config.fileConfig(join(dirname(__file__), 'logging.conf'))
+    if (exists('logging.conf')):
+        logging.config.fileConfig('logging.conf')
+    else:
+        logging.config.fileConfig(join(dirname(__file__), 'logging.conf'))
     _log = logging.getLogger(__name__)
 
     parser = argparse.ArgumentParser(description=__doc__,
