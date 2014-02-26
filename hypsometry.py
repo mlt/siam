@@ -161,11 +161,13 @@ limit 1
 
         self._log.debug('Creating in-memory stuff')
         mrd = gdal.GetDriverByName('MEM')
-        self.inmem = mrd.Create('', self.raster.shape[1], self.raster.shape[0], 1, gdal.GDT_Byte)
+        self.inmem = mrd.Create('', self.raster.shape[1], self.raster.shape[0], 2, gdal.GDT_Byte)
         if gdal.CE_Failure == self.inmem.SetProjection(self.proj):
             self._log.critical('Failed to set projection for in-memory raster')
         self.inmem.SetGeoTransform(self.geotransform)
         self.imb = self.inmem.GetRasterBand(1)
+        self.mask = self.inmem.GetRasterBand(2)
+        self.mask.WriteArray(~np.isclose(self.raster, self.NODATA).astype(np.byte))
         drv = ogr.GetDriverByName('Memory')
         self.dst_ds = drv.CreateDataSource('out') # is it a must?
 
@@ -181,14 +183,13 @@ limit 1
         found_any = True
         while z <= z_max and found_any:
             self._log.debug('Filtering for z=%.2f m ...', z)
-            tmp = (self.raster <= z) & ~np.isclose(self.raster, self.NODATA)
+            tmp = self.raster <= z
             self.imb.WriteArray(tmp.astype(np.byte))
             self._log.debug('Polygonizing...')
             lyr = self.dst_ds.CreateLayer('polys', self.srs, ogr.wkbPolygon)
             fd = ogr.FieldDefn('below', ogr.OFTInteger)
             lyr.CreateField( fd )
-            # TODO add mask
-            gdal.Polygonize(self.imb, None, lyr, 0)
+            gdal.Polygonize(self.imb, self.mask, lyr, 0)
             if lyr.SetAttributeFilter('below > 0'):
                 self._log.critical("Failed to restrict polygons")
             found_any = self._findpoly(z, lyr)
