@@ -6,9 +6,8 @@ points and DEM.
 """
 
 from __future__ import print_function
-import logging, logging.config
+import logging.config
 from os.path import dirname, join
-from time import sleep
 import numpy as np
 import argparse
 import multiprocessing as mp
@@ -17,10 +16,10 @@ from MultiProcessingLog import QueueHandler, QueueListener
 
 try:
     from osgeo import gdal, osr, ogr
-    from osgeo.gdalconst import *
+    from osgeo.gdalconst import GA_ReadOnly
 except ImportError:
     import gdal, osr, ogr
-    from gdalconst import *
+    from gdalconst import GA_ReadOnly
 
 class Hypsometry:
     "Hypsometry creator"

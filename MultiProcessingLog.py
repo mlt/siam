@@ -2,7 +2,7 @@
 http://stackoverflow.com/questions/641420/how-should-i-log-while-using-multiprocessing-in-python
 """
 
-import multiprocessing, threading, logging, sys, traceback
+import threading, logging, sys, traceback
 
 class QueueHandler(logging.Handler):
     def __init__(self, queue):
