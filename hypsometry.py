@@ -269,7 +269,11 @@ def run_part(args):
     _log.addHandler(hndlr)
     _log.info("Working on part %d", args['part'])
     h = Hypsometry(args)
-    h.run()
+    try:
+        h.run()
+    except:
+        # This will funnel formatted exceptions via mp.Queue
+        _log.exception('Failed to run hypsometry')
     _log.info("Done working on part %d", args['part'])
     _log.removeHandler(hndlr)
 
