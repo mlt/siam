@@ -145,7 +145,6 @@ limit 1
         returning gid, z, geom;""".format(
             layer=self.layer, pid=self.part, dem=self.dem_table, poly=self.dem_parts))
         pt = lyr.GetNextFeature()
-        g = pt.GetGeometryRef()
         # self._log.info("We got gid={:d} z={:f}".format(pt.GetField('gid'), pt.GetField('z')))
         # self._log.info("fid=%d, x=%f", pt.GetFID(), g.GetX())
         z = pt.GetField('z')
@@ -466,7 +465,7 @@ if __name__ == '__main__':
                         help='Table to be created with partition polygons')
     parser.add_argument('--parts-map',
                         default='side_inlets_parts',
-                        help='Table with inlet-partition mapping')
+                        help='Table with inlet-partition mapping. Used only without --find-bottom')
     parser.add_argument('--layer',
                         default='side_inlets',
                         help='Layer name with points of interest')
