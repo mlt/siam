@@ -379,11 +379,11 @@ select gid, pid
 from (
   select gid, pid, row_number() over inlet
   from (
-    select variance(ST_Value(rast, i.geom)) over part, gid, pid
+    select variance(ST_Value(rast, i.geom)) over part, gid, p.pid
     from {dem_parts:s} p
         join {side_inlets:s} i on ST_Dwithin(i.geom, p.geom, {radius:f})
     join {dem_table:s} on ST_Intersects(i.geom, rast) {where:s}
-    window part as (partition by pid)
+    window part as (partition by p.pid)
   ) foo
   window inlet as (partition by gid order by variance)
 ) bar
