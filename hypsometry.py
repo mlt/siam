@@ -140,6 +140,7 @@ from (
         and gid={pid:d}
   group by gid
 ) foo
+where (gv).val!=(select ST_BandNoDataValue(rast,1) from dem where rid=1)
 order by (gv).val
 limit 1
         returning gid, z, geom;""".format(
