@@ -53,10 +53,12 @@ select rid from {:s}, {:s}
 where ST_Intersects(geom, rast::geometry)
   and {:s} = {:d})'""".format(self.dem_table, self.dem_parts, fid, self.part)
         else:
-            if not self.layer is None:
-                self.pts = self.conn_ogr.GetLayerByName(self.layer)
-            else:
+            if exists(self.layer):
+                self.conn_ogr = ogr.Open(self.layer)
                 self.pts = self.conn_ogr.GetLayer()
+                self.layer = None
+            else:
+                self.pts = self.conn_ogr.GetLayerByName(self.layer)
             self.srs = self.pts.GetSpatialRef()
             if self.srs is None:
                 self._log.warn("Failed to get spatial reference for inlets. I hope you do use the same projection with DEM!")
@@ -331,14 +333,16 @@ class Starter:
         self._log.info("Making output table '%s'", self.table)
         self.conn_ogr = ogr.Open("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
         self._log.info("blah %d", self.find_bottom)
-        if not self.layer is None:
+        if exists(self.layer):
+            conn = ogr.Open(self.layer)
+            lyr = conn.GetLayer()
+            self.layer = None
+        else:
             if self.find_bottom:
                 lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
                 self._log.info("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
             else:
                 lyr = self.conn_ogr.GetLayerByName(self.layer)
-        else:
-            lyr = self.conn_ogr.GetLayer()
         self.srs = lyr.GetSpatialRef()
 
         out_ogr = ogr.Open(self.out, True)
