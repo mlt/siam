@@ -170,6 +170,24 @@ limit 1
         self.mask.WriteArray(np.logical_not(np.isclose(self.raster, self.NODATA)))
         drv = ogr.GetDriverByName('Memory')
         self.dst_ds = drv.CreateDataSource('out') # is it a must?
+        self.boundary = self.dst_ds.CreateLayer('boundary', self.srs, ogr.wkbLineString)
+        # dbg = self.out_ogr.CreateLayer('boundary_%d' % (self.part or 0), self.srs, ogr.wkbLineString, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
+        bndry = self.dst_ds.CreateLayer('bndry', self.srs, ogr.wkbPolygon)
+        fd = ogr.FieldDefn('id', ogr.OFTInteger)
+        bndry.CreateField(fd)
+        gdal.Polygonize(self.mask, None, bndry, 0)
+        bndry.ResetReading()
+        for b in bndry:
+            if b.GetField('id') > 0:
+                g = b.GetGeometryRef()
+                f = ogr.Feature(self.boundary.GetLayerDefn())
+                f.SetGeometry(g.Boundary())
+                self.boundary.CreateFeature(f)
+                # dbg.CreateFeature(f)
+
+        self.out_ogr = ogr.Open(self.out, True)
+        self.polys = self.out_ogr.GetLayerByName(self.table)
+
 
     def _getout(self):
         """Connect to shared output layer"""
@@ -218,6 +236,17 @@ limit 1
                     poly_geom = p.GetGeometryRef()
                     if v[0].GetGeometryRef().Within(poly_geom):
                         self._log.debug('Found polygon for point %d at %.2f', k, z)
+                        self.boundary.ResetReading()
+                        touches_boundary = False
+                        for bndry in self.boundary:
+                            geom = bndry.GetGeometryRef()
+                            if geom.Intersects(poly_geom):
+                                self._log.debug('Reached boundary. Removing.')
+                                del self.pts_dict[k]
+                                touches_boundary = True
+                                break
+                        if touches_boundary:
+                            break
                         feat = ogr.Feature(self.polys.GetLayerDefn())
                         feat.SetField('polygon', p.GetFID())
                         feat.SetField('point', k)
