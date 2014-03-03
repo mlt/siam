@@ -167,7 +167,7 @@ limit 1
         self.inmem.SetGeoTransform(self.geotransform)
         self.imb = self.inmem.GetRasterBand(1)
         self.mask = self.inmem.GetRasterBand(2)
-        self.mask.WriteArray(~np.isclose(self.raster, self.NODATA).astype(np.byte))
+        self.mask.WriteArray(np.logical_not(np.isclose(self.raster, self.NODATA)))
         drv = ogr.GetDriverByName('Memory')
         self.dst_ds = drv.CreateDataSource('out') # is it a must?
 
@@ -363,6 +363,7 @@ from (
   select ST_Dump(ST_Union(rast::geometry)) as g
   from {side_inlets:s}, {dem_table:s}
     where ST_DWithin(rast::geometry, geom, {radius:f}) {where:s}
+      and not ST_BandIsNoData(rast, false)
 ) foo returning pid;""".format(dem_parts=self.dem_parts, side_inlets=self.layer,
                                dem_table=self.dem_table, radius=self.radius, where=where))
 
