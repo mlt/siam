@@ -13,6 +13,7 @@ import argparse
 import multiprocessing as mp
 from copy import deepcopy
 from MultiProcessingLog import QueueHandler, QueueListener
+import sys
 
 try:
     from osgeo import gdal, osr, ogr
@@ -142,7 +143,7 @@ from (
         and gid={pid:d}
   group by gid
 ) foo
-where (gv).val!=(select ST_BandNoDataValue(rast,1) from dem where rid=1)
+where (gv).val!=(select ST_BandNoDataValue(rast,1) from {dem:s} where rid=1)
 order by (gv).val
 limit 1
         returning gid, z, geom;""".format(
@@ -173,22 +174,17 @@ limit 1
         drv = ogr.GetDriverByName('Memory')
         self.dst_ds = drv.CreateDataSource('out') # is it a must?
         self.boundary = self.dst_ds.CreateLayer('boundary', self.srs, ogr.wkbLineString)
-        # dbg = self.out_ogr.CreateLayer('boundary_%d' % (self.part or 0), self.srs, ogr.wkbLineString, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
         bndry = self.dst_ds.CreateLayer('bndry', self.srs, ogr.wkbPolygon)
-        fd = ogr.FieldDefn('id', ogr.OFTInteger)
+        fd = ogr.FieldDefn('valid', ogr.OFTInteger)
         bndry.CreateField(fd)
         gdal.Polygonize(self.mask, None, bndry, 0)
-        bndry.ResetReading()
+        if bndry.SetAttributeFilter('valid > 0'):
+            self._log.critical("Failed to restrict valid data boundary polygons")
         for b in bndry:
-            if b.GetField('id') > 0:
-                g = b.GetGeometryRef()
-                f = ogr.Feature(self.boundary.GetLayerDefn())
-                f.SetGeometry(g.Boundary())
-                self.boundary.CreateFeature(f)
-                # dbg.CreateFeature(f)
-
-        self.out_ogr = ogr.Open(self.out, True)
-        self.polys = self.out_ogr.GetLayerByName(self.table)
+            g = b.GetGeometryRef()
+            f = ogr.Feature(self.boundary.GetLayerDefn())
+            f.SetGeometry(g.Boundary())
+            self.boundary.CreateFeature(f)
 
 
     def _getout(self):
@@ -219,7 +215,7 @@ limit 1
 
     def _process_queue(self):
         """Main loop to deal with elevations queue"""
-        z = -9999
+        z = -sys.maxint - 1
         for z_inlet in self.z:
             if z < z_inlet:
                 z = z_inlet
