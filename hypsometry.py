@@ -108,12 +108,21 @@ where ST_Contains(geom, rast::geometry)
         self.z = [ zmin ]
         self.pts_dict = dict()
 
+    @staticmethod
+    def _transform(transform, x, y):
+        xx = transform[0] + transform[1] * x + transform[2] * y
+        yy = transform[3] + transform[4] * x + transform[5] * y
+        return xx, yy
+
+    def _world2pixel(self, x, y):
+        return self._transform(self.invgeotransform, x, y)
+
+    def _pixel2world(self, x, y):
+        return self._transform(self.geotransform, x, y)
+
     def raster_value(self, geom):
         "Read raster cell value at point"
-        iPixel = int(
-            self.invgeotransform[0] + self.invgeotransform[1] * geom.GetX() + self.invgeotransform[2] * geom.GetY())
-        iLine = int(
-            self.invgeotransform[3] + self.invgeotransform[4] * geom.GetX() + self.invgeotransform[5] * geom.GetY())
+        iPixel, iLine = self._world2pixel(geom.GetX(), geom.GetY())
         return self.raster[iLine, iPixel]
 
     def _find_pixels(self):
