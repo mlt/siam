@@ -252,7 +252,7 @@ limit 1
             z = self._process(z, z_max)
 
 
-    def _remove_contaminated(self, polygon):
+    def _remove_contaminated(self, z, polygon):
         "Test whether polygon is contaminated and remove points within"
         self.boundary.ResetReading()
         touches_boundary = False
@@ -260,7 +260,7 @@ limit 1
             boundary = feature.GetGeometryRef()
             if boundary.Intersects(polygon):
                 self._log.debug('Reached boundary. Skipping.')
-                self.pts_dict = {k:v for k, v in self.pts_dict.iteritems() if not v[0].Within(polygon)}
+                self.pts_dict = {k:v for k, v in self.pts_dict.iteritems() if v[1] > z or not v[0].Within(polygon)}
                 touches_boundary = True
                 break
 
@@ -312,7 +312,7 @@ limit 1
         lyr.ResetReading()
         for p in lyr:
             polygon = p.GetGeometryRef()
-            if self._remove_contaminated(polygon):
+            if self._remove_contaminated(z, polygon):
                 continue
 
             # Find all points within, select first lowest, link & delete others
