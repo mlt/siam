@@ -15,6 +15,8 @@ from copy import deepcopy
 from MultiProcessingLog import QueueHandler, QueueListener
 from operator import itemgetter
 import sys
+import Image
+from ImageDraw import Draw
 
 try:
     from osgeo import gdal, osr, ogr
@@ -264,8 +266,32 @@ limit 1
 
         return touches_boundary
 
+    def _add_real_bottom(self, z, polygon):
+        "Accurately find the lowest location within a polygon"
+        vertices = polygon.GetGeometryRef(0)
+        vlist = [self._world2pixel(vertices.GetX(v), vertices.GetY(v)) for v in range(vertices.GetPointCount())]
+        img = Image.new('L', (self.raster.shape[1], self.raster.shape[0]), 1)
+        Draw(img).polygon(vlist)
+        mask = np.fromstring(img.tostring(), 'b')
+        mask.shape = self.raster.shape
+        masked = np.ma.masked_array(self.raster, mask=mask)
+        y, x = np.unravel_index(np.argmin(masked), mask.shape)
+        zmin = self.raster[y, x]
+        assert not np.isclose(zmin, self.NODATA)
+        pt = ogr.Geometry(ogr.wkbPoint)
+        easting, northing = self._pixel2world(x, y)
+        pt.SetPoint_2D(0, easting, northing)
+        f = ogr.Feature(self.pts.GetLayerDefn())
+        f.SetField('z', float(z))
+        f.SetField('pid', self.part)
+        f.SetGeometry(pt)
+        self.pts.CreateFeature(f)
+        k = f.GetFID()
+        self._log.debug('Created %d', k)
+        self.pts_dict[k] = pt, zmin
+        return k, zmin
+
     def _add_bottom(self, z, polygon):
-        # TODO: shall it be the lowest point???
         centroid = polygon.Centroid()
         f = ogr.Feature(self.pts.GetLayerDefn())
         f.SetField('z', float(z))
@@ -308,7 +334,7 @@ limit 1
                     for kk, _ in within[1:]:
                         del self.pts_dict[kk]
             elif self.find_bottom:
-                k, zmin = self._add_bottom(z, polygon)
+                k, zmin = self._add_real_bottom(z, polygon)
             else:
                 continue
 
