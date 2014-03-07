@@ -40,7 +40,7 @@ class Hypsometry:
         connstr = "PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user)
         connstr_dem = connstr + " table={:s} mode=2".format(self.dem_table)
         self.conn_ogr = ogr.Open(connstr)
-        if self.find_bottom:
+        if getattr(self, 'find_bottom', False):
             parts = self.conn_ogr.GetLayerByName(self.dem_parts)
             self.srs = parts.GetSpatialRef()
             if self.srs is None:
@@ -69,7 +69,7 @@ where ST_Intersects(geom, rast::geometry)
             else:
                 self.SRID = int(self.srs.GetAttrValue("AUTHORITY", 1))
                 self._log.info("Points will be read from '%s' with SRID=%d", connstr, self.SRID)
-            if not self.part is None:
+            if getattr(self, 'part', False):
                 fid = self.pts.GetFIDColumn()
                 if fid is None or fid == '':
                     self._log.critical("FID column is unknown!! I assume it is 'gid'")
@@ -79,7 +79,6 @@ where ST_Intersects(geom, rast::geometry)
                 # necessary points only if those need to be restricted
                 if self.pts.SetAttributeFilter(where):
                     self._log.critical("Failed to restrict features for partition #%d", self.part)
-            if not self.part is None:
                 connstr_dem += """ where='rid in (
 select rid from {:s}, {:s}
 where ST_Contains(geom, rast::geometry)
@@ -217,7 +216,7 @@ limit 1
         self.polys = self.out_ogr.GetLayerByName(self.table)
         if self.polys is None:
             self._log.critical('Failed to get an output layer %s', self.table)
-        if self.find_bottom:
+        if getattr(self, 'find_bottom', False):
             self.pts = self.out_ogr.GetLayerByName(self.layer)
             if self.pts is None:
                 self._log.critical('Failed to open bottoms layer')
@@ -307,7 +306,12 @@ limit 1
     def _findpoly(self, z, lyr):
         """Find polygons for inlets"""
         self._log.debug('Searching for one in %d polygons...', lyr.GetFeatureCount())
-        found_any = True
+        found_any = False
+        try:
+            if self.find_bottom in ['fast', 'rigorous']:
+                found_any = True
+        except (KeyError, AttributeError):
+            pass
 
         lyr.ResetReading()
         for p in lyr:
@@ -333,10 +337,15 @@ limit 1
                     self._log.debug('Merging %s points into %d', gids, k)
                     for kk, _ in within[1:]:
                         del self.pts_dict[kk]
-            elif self.find_bottom:
-                k, zmin = self._add_real_bottom(z, polygon)
             else:
-                continue
+                try:
+                    method = {'fast': self._add_bottom,
+                              'rigorous': self._add_real_bottom}[self.find_bottom]
+                except (KeyError, AttributeError):
+                    continue
+                k = method(z, polygon)
+
+            zmin = self.pts_dict[k][1]
 
             if 1:
                         self._log.debug('Found polygon for point %d at %.2f', k, z)
@@ -361,18 +370,13 @@ limit 1
 
     def run(self):
         self._read()
-        if self.find_bottom:
-        # We already have dataset read so we can find first
-        # whatever lowest point is there. If this won't work for
-        # some reason, we can use SQL and find centroid of first
-        # polygon representing points with lowest elevation.
-        #
-        # However we also have to check for containment later and
-        # return found bottoms to use. So we got to have a layer
-        # anyway.
-            self._find_minmax()
-        else:
+        if not getattr(self, 'find_bottom', False):
             self._find_pixels()
+        else:
+            if 'single' == self.find_bottom:
+                self._mk_bottom_lyr()
+            else:
+                self._find_minmax()
         self._mkmem()
         self._getout()
         self._process_queue()
@@ -429,7 +433,7 @@ class Starter:
             lyr = conn.GetLayer()
             self.layer = None
         else:
-            if self.find_bottom:
+            if getattr(self, 'find_bottom', False):
                 lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
                 self._log.info("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
             else:
@@ -452,26 +456,24 @@ class Starter:
         fd = ogr.FieldDefn('area', ogr.OFTReal)
         output_lyr.CreateField(fd)
 
-        if self.find_bottom:
+        if getattr(self, 'find_bottom', False):
             self._log.info("Creating layer for POIs in '%s'", self.layer)
             pts_lyr = self.conn_ogr.CreateLayer(self.layer, self.srs, ogr.wkbPoint, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
             if pts_lyr is None:
                 self._log.critical('Failed to create a point layer %s', self.layer)
             fd = ogr.FieldDefn('z', ogr.OFTReal)
             pts_lyr.CreateField(fd)
-            fd = ogr.FieldDefn('merge_to', ogr.OFTInteger)
-            pts_lyr.CreateField(fd)
-            # For now, we have a single bottom per partition, but it
-            # may change in the future as we pick up other smaller
-            # nested depressions in this case we need a separate field
-            # to mark partition/depression from ArcHydro it sits in.
+            if 'single' != self.find_bottom:
+                fd = ogr.FieldDefn('merge_to', ogr.OFTInteger)
+                pts_lyr.CreateField(fd)
+            # pid is somewhat useless as gid numbering is global
             fd = ogr.FieldDefn('pid', ogr.OFTInteger)
             pts_lyr.CreateField(fd)
 
     def _prepare(self):
         """Set up partitions for parallel processing"""
 
-        if self.find_bottom:
+        if getattr(self, 'find_bottom', False):
             self._log.info("Counting existing partitions in '%s'", self.dem_parts)
             lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
         else:
@@ -535,7 +537,7 @@ create index on {side_inlets_parts:s}(pid);
         return out
 
     def run(self):
-        if self.fixup:
+        if getattr(self, 'fixup', False):
             # We have to keep output table in same database to be able
             # to selectively remove records. Alternatively we can
             # fetch list of gid using WHERE and delete those in output
@@ -543,7 +545,7 @@ create index on {side_inlets_parts:s}(pid);
             pass
         else:
             self.mkout()
-        if self.mp:
+        if getattr(self, 'mp', False):
             parts = self._prepare()
             self.pool = mp.Pool(processes = min(len(parts), self.threads)) # is it that bad to have extra dormant workers??
             # args = vars(args)
@@ -597,8 +599,8 @@ if __name__ == '__main__':
     parser.add_argument('--layer',
                         default='side_inlets',
                         help='Layer name with points of interest')
-    parser.add_argument('--find-bottom', action='store_true',
-                        help='Create LAYER (will overwrite!) with POIs in lowest points of existing partitions')
+    parser.add_argument('--find-bottom', choices=['single', 'fast', 'rigorous'],
+                        help='Create LAYER (will overwrite!) with POIs in the lowest: single) points of existing partitions, fast) depression polygon centroids, rigorous) point of depressions')
     parser.add_argument('--out',
                         default='PG:host=localhost port=5432 dbname=gis user=user',
                         help='An output recognizeable by OGR')
