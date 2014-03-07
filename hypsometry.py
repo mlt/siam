@@ -265,43 +265,73 @@ limit 1
 
         return touches_boundary
 
-    def _add_real_bottom(self, z, polygon):
-        "Accurately find the lowest location within a polygon"
-        vertices = polygon.GetGeometryRef(0)
-        vlist = [self._world2pixel(vertices.GetX(v), vertices.GetY(v)) for v in range(vertices.GetPointCount())]
-        img = Image.new('L', (self.raster.shape[1], self.raster.shape[0]), 1)
-        Draw(img).polygon(vlist)
+    def _add_minimum_bottom(self, polygon):
+        """Accurately find the lowest location within a polygon.
+
+        Quite slow. Use when having a large step to avoid centroids for oxbow shaped depressions.
+
+        :param Geometry polygon: The polygon to use as a mask when looking for minimum
+        :return: newly created OGR feature id
+        :rtype: int
+        :raises AssertionError: if stumbled upon NODATA. Supplied polygon is expected to be derived previously from valid data.
+        """
+        points = polygon.GetGeometryRef(0)
+        rng = xrange(points.GetPointCount())
+#         pixels = np.vstack(self._world2pixel(
+#                                    np.vectorize(points.GetX, otypes=[np.float])(rng),
+#                                    np.vectorize(points.GetY, otypes=[np.float])(rng))).transpose().flatten().tolist() # 67.12 sec
+#         pixels = np.vstack(self._world2pixel(
+#                                    np.vectorize(points.GetX)(rng),
+#                                    np.vectorize(points.GetY)(rng))).transpose().flatten().tolist() # 66.8 sec
+#         xx, yy = self._world2pixel(
+#                                    np.vectorize(points.GetX)(rng),
+#                                    np.vectorize(points.GetY)(rng))
+#         pixels = zip(xx, yy) # 67.26 sec
+#         pixels = [self._world2pixel(points.GetX(p), points.GetY(p)) for p in range(points.GetPointCount())] # 65.87 sec
+        pixels = [self._world2pixel(points.GetX(p), points.GetY(p)) for p in rng] # 66.44 sec
+        img = Image.new('L', self.raster.shape[::-1], 1)
+        Draw(img).polygon(pixels)
         mask = np.fromstring(img.tostring(), 'b')
         mask.shape = self.raster.shape
         masked = np.ma.masked_array(self.raster, mask=mask)
         y, x = np.unravel_index(np.argmin(masked), mask.shape)
-        zmin = self.raster[y, x]
-        assert not np.isclose(zmin, self.NODATA)
+        z = self.raster[y, x]
+        assert not np.isclose(z, self.NODATA)
         pt = ogr.Geometry(ogr.wkbPoint)
         easting, northing = self._pixel2world(x, y)
         pt.SetPoint_2D(0, easting, northing)
-        f = ogr.Feature(self.pts.GetLayerDefn())
-        f.SetField('z', float(z))
-        f.SetField('pid', self.part)
-        f.SetGeometry(pt)
-        self.pts.CreateFeature(f)
-        k = f.GetFID()
-        self._log.debug('Created %d', k)
-        self.pts_dict[k] = pt, zmin
-        return k, zmin
+        return self._add_bottom_point(z, pt)
 
-    def _add_bottom(self, z, polygon):
-        centroid = polygon.Centroid()
+    def _add_bottom_point(self, z, geom):
+        """
+        Add point feature (bottom) to the output layer
+
+        :param float z: elevation of the bottom
+        :param Geometry geom: bottom point :gdal:`geometry <osgeo.ogr.Geometry-class>`
+        :return: feature id added
+        :rtype: int
+        """
         f = ogr.Feature(self.pts.GetLayerDefn())
         f.SetField('z', float(z))
         f.SetField('pid', self.part)
-        f.SetGeometry(centroid)
+        f.SetGeometry(geom)
         self.pts.CreateFeature(f)
         k = f.GetFID()
         self._log.debug('Created %d', k)
-        zmin = self.raster_value(centroid)
-        self.pts_dict[k] = (centroid, zmin)
-        return k, zmin
+        self.pts_dict[k] = (geom, z)
+        return k
+
+    def _add_centroid_bottom(self, polygon):
+        """
+        Add the centroid of the polygon as a bottom
+
+        :param Geometry polygon: currently being processed polygon
+        :return: feature id added
+        :rtype: int
+        """
+        centroid = polygon.Centroid()
+        z = self.raster_value(centroid)
+        return self._add_bottom_point(z, centroid)
 
     def _findpoly(self, z, lyr):
         """Find polygons for inlets"""
@@ -339,11 +369,11 @@ limit 1
                         del self.pts_dict[kk]
             else:
                 try:
-                    method = {'fast': self._add_bottom,
-                              'rigorous': self._add_real_bottom}[self.find_bottom]
+                    method = {'fast': self._add_centroid_bottom,
+                              'rigorous': self._add_minimum_bottom}[self.find_bottom]
                 except (KeyError, AttributeError):
                     continue
-                k = method(z, polygon)
+                k = method(polygon)
 
             zmin = self.pts_dict[k][1]
 
