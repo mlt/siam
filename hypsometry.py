@@ -356,16 +356,12 @@ limit 1
 
             if len(within):
                 within = sorted(within, key=itemgetter(1))
-                k = within[0][0]
-                zmin = within[0][1]
-                if len(within) > 1:
-                    gids = ','.join(str(tup[0]) for tup in within[1:])
+                k = within.pop(0)[0]
+                if len(within):
+                    gids = ','.join(str(k) for k, _ in within)
                     self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
-#                     upd_lyr = self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d} returning merge_to'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
-#                     assert len(within)-1 == upd_lyr.GetFeatureCount()
-#                     self.out_ogr.ReleaseResultSet(upd_lyr)
                     self._log.debug('Merging %s points into %d', gids, k)
-                    for kk, _ in within[1:]:
+                    for kk, _ in within:
                         del self.pts_dict[kk]
             else:
                 try:
@@ -377,24 +373,23 @@ limit 1
 
             zmin = self.pts_dict[k][1]
 
-            if 1:
-                        self._log.debug('Found polygon for point %d at %.2f', k, z)
-                        feat = ogr.Feature(self.polys.GetLayerDefn())
-                        feat.SetField('polygon', p.GetFID())
-                        feat.SetField('point', k)
-                        # Somehow without float() it says NotImplementedError: Wrong number of arguments for overloaded function 'Feature_SetField'.
-                        feat.SetField('z', float(z))
-                        feat.SetField('stage', float(z - zmin))
-                        feat.SetGeometry(polygon)
-                        area = polygon.GetArea()
-                        feat.SetField('area', area)
-                        self.polys.CreateFeature(feat)
-                        if area > self.max_area or zmin < z - self.max_height:
-                            self._log.debug('Either area (%.1f) is getting too big for %d or it is way below z. Removing.', area, k)
-                            del self.pts_dict[k]
-                        else:
-                            # No need to mark if it was the last for given elevation
-                            found_any = True
+            self._log.debug('Found polygon for point %d at %.2f', k, z)
+            feat = ogr.Feature(self.polys.GetLayerDefn())
+            feat.SetField('polygon', p.GetFID())
+            feat.SetField('point', k)
+            # Somehow without float() it says NotImplementedError: Wrong number of arguments for overloaded function 'Feature_SetField'.
+            feat.SetField('z', float(z))
+            feat.SetField('stage', float(z - zmin))
+            feat.SetGeometry(polygon)
+            area = polygon.GetArea()
+            feat.SetField('area', area)
+            self.polys.CreateFeature(feat)
+            if area > self.max_area or zmin < z - self.max_height:
+                self._log.debug('Either area (%.1f) is getting too big for %d or it is way below z. Removing.', area, k)
+                del self.pts_dict[k]
+            else:
+                # No need to mark if it was the last for given elevation
+                found_any = True
 
         return found_any
 
@@ -457,7 +452,6 @@ class Starter:
 
         self._log.info("Making output table '%s'", self.table)
         self.conn_ogr = ogr.Open("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
-        self._log.info("blah %d", self.find_bottom)
         if exists(self.layer):
             conn = ogr.Open(self.layer)
             lyr = conn.GetLayer()
@@ -465,7 +459,6 @@ class Starter:
         else:
             if getattr(self, 'find_bottom', False):
                 lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
-                self._log.info("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
             else:
                 lyr = self.conn_ogr.GetLayerByName(self.layer)
         self.srs = lyr.GetSpatialRef()
