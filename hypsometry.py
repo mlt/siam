@@ -400,6 +400,10 @@ limit 1
     #     self._log.debug("Closing ODBC/PG connection")
     #     self.conn.close()
 
+def profile_part(args):
+    import cProfile
+    cProfile.runctx('run_part(args)', globals(), locals(), '%s_%d.prof' % (args['profile'], args['part'] or 0))
+
 def run_part(args):
     """Entry point for sub-processes.
 
@@ -560,13 +564,17 @@ create index on {side_inlets_parts:s}(pid);
         if getattr(self, 'mp', False):
             parts = self._prepare()
             self.pool = mp.Pool(processes = min(len(parts), self.threads)) # is it that bad to have extra dormant workers??
+            if getattr(self, 'profile', False):
+                entry = profile_part
+            else:
+                entry = run_part
             # args = vars(args)
             def fix_part(part):
                 out = deepcopy(self.args)
                 out['part'] = part
                 out['_queue'] = self.queue
                 return out
-            self.pool.map(run_part, [fix_part(x) for x in parts])
+            self.pool.map(entry, [fix_part(x) for x in parts])
         else:
             h = Hypsometry(self.args)
             h.run()
@@ -641,6 +649,8 @@ if __name__ == '__main__':
                         help='Maximum number of parallel processes')
     parser.add_argument('--mp', action='store_true',
                         help='Use multiprocess & partitioning. This is required if --find-bottom is used.')
+    parser.add_argument('--profile',
+                        help='Prefix for cProfile output')
     # parser.add_argument('--verbose', action='store_true',
     #                     help='Drop logging level to DEBUG')
     args = parser.parse_args()
