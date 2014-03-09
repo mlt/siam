@@ -13,7 +13,10 @@ import argparse
 import multiprocessing as mp
 from copy import deepcopy
 from MultiProcessingLog import QueueHandler, QueueListener
+from operator import itemgetter
 import sys
+import Image
+from ImageDraw import Draw
 
 try:
     from osgeo import gdal, osr, ogr
@@ -37,7 +40,7 @@ class Hypsometry:
         connstr = "PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user)
         connstr_dem = connstr + " table={:s} mode=2".format(self.dem_table)
         self.conn_ogr = ogr.Open(connstr)
-        if self.find_bottom:
+        if getattr(self, 'find_bottom', False):
             parts = self.conn_ogr.GetLayerByName(self.dem_parts)
             self.srs = parts.GetSpatialRef()
             if self.srs is None:
@@ -66,7 +69,7 @@ where ST_Intersects(geom, rast::geometry)
             else:
                 self.SRID = int(self.srs.GetAttrValue("AUTHORITY", 1))
                 self._log.info("Points will be read from '%s' with SRID=%d", connstr, self.SRID)
-            if not self.part is None:
+            if getattr(self, 'part', False):
                 fid = self.pts.GetFIDColumn()
                 if fid is None or fid == '':
                     self._log.critical("FID column is unknown!! I assume it is 'gid'")
@@ -76,7 +79,6 @@ where ST_Intersects(geom, rast::geometry)
                 # necessary points only if those need to be restricted
                 if self.pts.SetAttributeFilter(where):
                     self._log.critical("Failed to restrict features for partition #%d", self.part)
-            if not self.part is None:
                 connstr_dem += """ where='rid in (
 select rid from {:s}, {:s}
 where ST_Contains(geom, rast::geometry)
@@ -98,6 +100,31 @@ where ST_Contains(geom, rast::geometry)
             raise Exception("Points & DEM should use same coordinate system")
         self.raster = band.ReadAsArray()
 
+    def _find_minmax(self):
+        "An attempt to find range for partition to slice"
+        masked = np.ma.masked_array(self.raster, mask=np.isclose(self.raster, self.NODATA))
+        zmin = masked.min()
+        self.max_height = sys.maxint
+        self.z = [ zmin ]
+        self.pts_dict = dict()
+
+    @staticmethod
+    def _transform(transform, x, y):
+        xx = transform[0] + transform[1] * x + transform[2] * y
+        yy = transform[3] + transform[4] * x + transform[5] * y
+        return xx, yy
+
+    def _world2pixel(self, x, y):
+        return self._transform(self.invgeotransform, x, y)
+
+    def _pixel2world(self, x, y):
+        return self._transform(self.geotransform, x, y)
+
+    def raster_value(self, geom):
+        "Read raster cell value at point"
+        iPixel, iLine = self._world2pixel(geom.GetX(), geom.GetY())
+        return self.raster[iLine, iPixel]
+
     def _find_pixels(self):
         """Read raster values for POIs.
 
@@ -110,20 +137,13 @@ Perhaps would be better to use SQL but this way we hopefully can use a
         self.z = []             # inlet elevations in ascending order
 
         for pt in self.pts:
-            geom = pt.GetGeometryRef()
+            geom = pt.GetGeometryRef().Clone()
             self._log.debug("%d => %.3f, %.3f", pt.GetFID(), geom.GetX(), geom.GetY())
 
-            iPixel = int(self.invgeotransform[0] +
-                         self.invgeotransform[1] * geom.GetX() +
-                         self.invgeotransform[2] * geom.GetY())
-            iLine = int(self.invgeotransform[3] +
-                        self.invgeotransform[4] * geom.GetX() +
-                        self.invgeotransform[5] * geom.GetY() );
             try:
-                val = self.raster[iLine, iPixel]
+                val = self.raster_value(geom)
                 if val != self.NODATA: # GDAL 1.9 is broken also should not(?) compare floats
-                    self._log.debug("%d => %d, %d : %f", pt.GetFID(), iPixel, iLine, val)
-                    self.pts_dict[pt.GetFID()] = [pt, val]
+                    self.pts_dict[pt.GetFID()] = (geom, val)
                     self.z.append(val)
             except IndexError:
                 pass
@@ -148,7 +168,9 @@ order by (gv).val
 limit 1
         returning gid, z, geom;""".format(
             layer=self.layer, pid=self.part, dem=self.dem_table, poly=self.dem_parts))
+        assert 1 == lyr.GetFeatureCount()
         pt = lyr.GetNextFeature()
+        geom = pt.GetGeometryRef().Clone()
         # self._log.info("We got gid={:d} z={:f}".format(pt.GetField('gid'), pt.GetField('z')))
         # self._log.info("fid=%d, x=%f", pt.GetFID(), g.GetX())
         z = pt.GetField('z')
@@ -156,7 +178,7 @@ limit 1
         # For now we use partition number as we assume 1 bottom per
         # partition. However we should use generated
         # pt.GetField('gid') and use partition-bottom mapping table.
-        self.pts_dict = { self.part : (pt, z)}
+        self.pts_dict = { self.part : (geom, z)}
         self.conn_ogr.ReleaseResultSet(lyr)
 
     def _mkmem(self):
@@ -193,12 +215,15 @@ limit 1
         self.polys = self.out_ogr.GetLayerByName(self.table)
         if self.polys is None:
             self._log.critical('Failed to get an output layer %s', self.table)
+        if getattr(self, 'find_bottom', False):
+            self.pts = self.out_ogr.GetLayerByName(self.layer)
+            if self.pts is None:
+                self._log.critical('Failed to open bottoms layer')
 
     def _process(self, z, z_max):
         """Elevation steps for a 'given' inlet and possibly others"""
-        found_any = True
-        while z <= z_max and found_any:
-            self._log.debug('Filtering for z=%.2f m ...', z)
+        accepted = 1
+        while z<=z_max and accepted>0:
             tmp = self.raster <= z
             self.imb.WriteArray(tmp.astype(np.byte))
             self._log.debug('Polygonizing...')
@@ -208,7 +233,10 @@ limit 1
             gdal.Polygonize(self.imb, self.mask, lyr, 0)
             if lyr.SetAttributeFilter('below > 0'):
                 self._log.critical("Failed to restrict polygons")
-            found_any = self._findpoly(z, lyr)
+            accepted = sum(self._consider_polygon(z, polygon) for polygon in lyr if not self._remove_contaminated(z, polygon))
+            self._log.debug('Looked through %d polygons @ %.2f, accepted %d', lyr.GetFeatureCount(), z, accepted)
+#             if not accepted:
+#                 self._log.debug('All polygons have been eliminated! Bailing out')
             self.dst_ds.DeleteLayer(1)
             z += self.step
         return z
@@ -223,61 +251,146 @@ limit 1
             z_max = z_inlet + self.max_height
             z = self._process(z, z_max)
 
-    def _findpoly(self, z, lyr):
+
+    def _remove_contaminated(self, z, feat):
+        "Test whether polygon is contaminated and remove points within"
+        polygon = feat.GetGeometryRef()
+        self.boundary.ResetReading()
+        touches_boundary = False
+        for feature in self.boundary:
+            boundary = feature.GetGeometryRef()
+            if boundary.Intersects(polygon):
+                self._log.debug('Reached boundary. Skipping.')
+                self.pts_dict = {k:v for k, v in self.pts_dict.iteritems() if v[1] > z or not v[0].Within(polygon)}
+                touches_boundary = True
+                break
+
+        return touches_boundary
+
+    def _add_minimum_bottom(self, polygon):
+        """Accurately find the lowest location within a polygon.
+
+        Quite slow. Use when having a large step to avoid centroids for oxbow shaped depressions.
+
+        :param Geometry polygon: The polygon to use as a mask when looking for minimum
+        :return: newly created OGR feature id
+        :rtype: int
+        :raises AssertionError: if stumbled upon NODATA. Supplied polygon is expected to be derived previously from valid data.
+        """
+        points = polygon.GetGeometryRef(0)
+        rng = xrange(points.GetPointCount())
+#         pixels = np.vstack(self._world2pixel(
+#                                    np.vectorize(points.GetX, otypes=[np.float])(rng),
+#                                    np.vectorize(points.GetY, otypes=[np.float])(rng))).transpose().flatten().tolist() # 67.12 sec
+#         pixels = np.vstack(self._world2pixel(
+#                                    np.vectorize(points.GetX)(rng),
+#                                    np.vectorize(points.GetY)(rng))).transpose().flatten().tolist() # 66.8 sec
+#         xx, yy = self._world2pixel(
+#                                    np.vectorize(points.GetX)(rng),
+#                                    np.vectorize(points.GetY)(rng))
+#         pixels = zip(xx, yy) # 67.26 sec
+#         pixels = [self._world2pixel(points.GetX(p), points.GetY(p)) for p in range(points.GetPointCount())] # 65.87 sec
+        pixels = [self._world2pixel(points.GetX(p), points.GetY(p)) for p in rng] # 66.44 sec
+        img = Image.new('L', self.raster.shape[::-1], 1)
+        Draw(img).polygon(pixels)
+        mask = np.fromstring(img.tostring(), 'b')
+        mask.shape = self.raster.shape
+        masked = np.ma.masked_array(self.raster, mask=mask)
+        y, x = np.unravel_index(np.argmin(masked), mask.shape)
+        z = self.raster[y, x]
+        assert not np.isclose(z, self.NODATA)
+        pt = ogr.Geometry(ogr.wkbPoint)
+        easting, northing = self._pixel2world(x, y)
+        pt.SetPoint_2D(0, easting, northing)
+        return self._add_bottom_point(z, pt)
+
+    def _add_bottom_point(self, z, geom):
+        """
+        Add point feature (bottom) to the output layer
+
+        :param float z: elevation of the bottom
+        :param Geometry geom: bottom point :gdal:`geometry <osgeo.ogr.Geometry-class>`
+        :return: feature id added
+        :rtype: int
+        """
+        f = ogr.Feature(self.pts.GetLayerDefn())
+        f.SetField('z', float(z))
+        f.SetField('pid', self.part)
+        f.SetGeometry(geom)
+        self.pts.CreateFeature(f)
+        k = f.GetFID()
+        self._log.debug('Created %d', k)
+        self.pts_dict[k] = (geom, z)
+        return k
+
+    def _add_centroid_bottom(self, polygon):
+        """
+        Add the centroid of the polygon as a bottom
+
+        :param Geometry polygon: currently being processed polygon
+        :return: feature id added
+        :rtype: int
+        """
+        centroid = polygon.Centroid()
+        z = self.raster_value(centroid)
+        return self._add_bottom_point(z, centroid)
+
+    def _consider_polygon(self, z, feat):
         """Find polygons for inlets"""
-        self._log.debug('Searching for one in %d polygons...', lyr.GetFeatureCount())
-        found_any = False
-        for k, v in self.pts_dict.items():
-            if v[1] <= z:
-                lyr.ResetReading()
-                for p in lyr:
-                    poly_geom = p.GetGeometryRef()
-                    if v[0].GetGeometryRef().Within(poly_geom):
-                        self._log.debug('Found polygon for point %d at %.2f', k, z)
-                        self.boundary.ResetReading()
-                        touches_boundary = False
-                        for bndry in self.boundary:
-                            geom = bndry.GetGeometryRef()
-                            if geom.Intersects(poly_geom):
-                                self._log.debug('Reached boundary. Removing.')
-                                del self.pts_dict[k]
-                                touches_boundary = True
-                                break
-                        if touches_boundary:
-                            break
-                        feat = ogr.Feature(self.polys.GetLayerDefn())
-                        feat.SetField('polygon', p.GetFID())
-                        feat.SetField('point', k)
-                        # Somehow without float() it says NotImplementedError: Wrong number of arguments for overloaded function 'Feature_SetField'.
-                        feat.SetField('z', float(z))
-                        feat.SetField('stage', float(z - v[1]))
-                        feat.SetGeometry(poly_geom)
-                        area = poly_geom.GetArea()
-                        feat.SetField('area', area)
-                        self.polys.CreateFeature(feat)
-                        if area > self.max_area or v[1] < z - self.max_height:
-                            self._log.debug('Either area (%.1f) is getting too big for %d or it is way below z. Removing.', area, k)
-                            del self.pts_dict[k]
-                        else:
-                            # No need to mark if it was the last for given elevation
-                            found_any = True
-                        break
-        return found_any
+        polygon = feat.GetGeometryRef()
+
+        # Find all points within, select first lowest, link & delete others
+        # TODO: there should be no point elevation check as we discover points on the go
+        # This is valid however only for auto discovery but not existing starting points
+        within = [(k, v[1]) for k, v in self.pts_dict.items() if v[1] <= z and v[0].Within(polygon)]
+
+        if len(within):
+            within = sorted(within, key=itemgetter(1))
+            k = within.pop(0)[0]
+            if len(within):
+                gids = ','.join(str(k) for k, _ in within)
+                self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
+                self._log.debug('Merging %s points into %d', gids, k)
+                for kk, _ in within:
+                    del self.pts_dict[kk]
+        else:
+            try:
+                method = {'fast': self._add_centroid_bottom,
+                          'rigorous': self._add_minimum_bottom}[self.find_bottom]
+            except (KeyError, AttributeError):
+                # No points are within and we can't add any so let's jump to next inlet above
+                return False
+            k = method(polygon)
+
+        zmin = self.pts_dict[k][1]
+
+        self._log.debug('Found polygon for point %d at %.2f', k, z)
+        f = ogr.Feature(self.polys.GetLayerDefn())
+        f.SetField('polygon', feat.GetFID())
+        f.SetField('point', k)
+        # Somehow without float() it says NotImplementedError: Wrong number of arguments for overloaded function 'Feature_SetField'.
+        f.SetField('z', float(z))
+        f.SetField('stage', float(z - zmin))
+        f.SetGeometry(polygon)
+        area = polygon.GetArea()
+        f.SetField('area', area)
+        self.polys.CreateFeature(f)
+        if area > self.max_area or zmin < z - self.max_height:
+            self._log.debug('Either area (%.1f) is getting too big for %d or it is way below z. Removing.', area, k)
+            del self.pts_dict[k]
+            return False
+
+        return True
 
     def run(self):
         self._read()
-        if self.find_bottom:
-        # We already have dataset read so we can find first
-        # whatever lowest point is there. If this won't work for
-        # some reason, we can use SQL and find centroid of first
-        # polygon representing points with lowest elevation.
-        #
-        # However we also have to check for containment later and
-        # return found bottoms to use. So we got to have a layer
-        # anyway.
-            self._mk_bottom_lyr()
-        else:
+        if not getattr(self, 'find_bottom', False):
             self._find_pixels()
+        else:
+            if 'single' == self.find_bottom:
+                self._mk_bottom_lyr()
+            else:
+                self._find_minmax()
         self._mkmem()
         self._getout()
         self._process_queue()
@@ -328,15 +441,13 @@ class Starter:
 
         self._log.info("Making output table '%s'", self.table)
         self.conn_ogr = ogr.Open("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
-        self._log.info("blah %d", self.find_bottom)
         if exists(self.layer):
             conn = ogr.Open(self.layer)
             lyr = conn.GetLayer()
             self.layer = None
         else:
-            if self.find_bottom:
+            if getattr(self, 'find_bottom', False):
                 lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
-                self._log.info("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
             else:
                 lyr = self.conn_ogr.GetLayerByName(self.layer)
         self.srs = lyr.GetSpatialRef()
@@ -357,24 +468,24 @@ class Starter:
         fd = ogr.FieldDefn('area', ogr.OFTReal)
         output_lyr.CreateField(fd)
 
-        if self.find_bottom:
+        if getattr(self, 'find_bottom', False):
             self._log.info("Creating layer for POIs in '%s'", self.layer)
             pts_lyr = self.conn_ogr.CreateLayer(self.layer, self.srs, ogr.wkbPoint, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
             if pts_lyr is None:
                 self._log.critical('Failed to create a point layer %s', self.layer)
             fd = ogr.FieldDefn('z', ogr.OFTReal)
             pts_lyr.CreateField(fd)
-            # For now, we have a single bottom per partition, but it
-            # may change in the future as we pick up other smaller
-            # nested depressions in this case we need a separate field
-            # to mark partition/depression from ArcHydro it sits in.
+            if 'single' != self.find_bottom:
+                fd = ogr.FieldDefn('merge_to', ogr.OFTInteger)
+                pts_lyr.CreateField(fd)
+            # pid is somewhat useless as gid numbering is global
             fd = ogr.FieldDefn('pid', ogr.OFTInteger)
             pts_lyr.CreateField(fd)
 
     def _prepare(self):
         """Set up partitions for parallel processing"""
 
-        if self.find_bottom:
+        if getattr(self, 'find_bottom', False):
             self._log.info("Counting existing partitions in '%s'", self.dem_parts)
             lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
         else:
@@ -438,7 +549,7 @@ create index on {side_inlets_parts:s}(pid);
         return out
 
     def run(self):
-        if self.fixup:
+        if getattr(self, 'fixup', False):
             # We have to keep output table in same database to be able
             # to selectively remove records. Alternatively we can
             # fetch list of gid using WHERE and delete those in output
@@ -446,7 +557,7 @@ create index on {side_inlets_parts:s}(pid);
             pass
         else:
             self.mkout()
-        if self.mp:
+        if getattr(self, 'mp', False):
             parts = self._prepare()
             self.pool = mp.Pool(processes = min(len(parts), self.threads)) # is it that bad to have extra dormant workers??
             # args = vars(args)
@@ -500,8 +611,8 @@ if __name__ == '__main__':
     parser.add_argument('--layer',
                         default='side_inlets',
                         help='Layer name with points of interest')
-    parser.add_argument('--find-bottom', action='store_true',
-                        help='Create LAYER (will overwrite!) with POIs in lowest points of existing partitions')
+    parser.add_argument('--find-bottom', choices=['single', 'fast', 'rigorous'],
+                        help='Create LAYER (will overwrite!) with POIs in the lowest: single) points of existing partitions, fast) depression polygon centroids, rigorous) point of depressions')
     parser.add_argument('--out',
                         default='PG:host=localhost port=5432 dbname=gis user=user',
                         help='An output recognizeable by OGR')
