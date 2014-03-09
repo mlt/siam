@@ -104,8 +104,7 @@ where ST_Contains(geom, rast::geometry)
         "An attempt to find range for partition to slice"
         masked = np.ma.masked_array(self.raster, mask=np.isclose(self.raster, self.NODATA))
         zmin = masked.min()
-        zmax = masked.max()
-        self.max_height = zmax - zmin
+        self.max_height = sys.maxint
         self.z = [ zmin ]
         self.pts_dict = dict()
 
@@ -223,9 +222,8 @@ limit 1
 
     def _process(self, z, z_max):
         """Elevation steps for a 'given' inlet and possibly others"""
-        found_any = True
-        while z <= z_max and found_any:
-            self._log.debug('Filtering for z=%.2f m ...', z)
+        accepted = 1
+        while z<=z_max and accepted>0:
             tmp = self.raster <= z
             self.imb.WriteArray(tmp.astype(np.byte))
             self._log.debug('Polygonizing...')
@@ -235,7 +233,10 @@ limit 1
             gdal.Polygonize(self.imb, self.mask, lyr, 0)
             if lyr.SetAttributeFilter('below > 0'):
                 self._log.critical("Failed to restrict polygons")
-            found_any = self._findpoly(z, lyr)
+            accepted = sum(self._consider_polygon(z, polygon) for polygon in lyr if not self._remove_contaminated(z, polygon))
+            self._log.debug('Looked through %d polygons @ %.2f, accepted %d', lyr.GetFeatureCount(), z, accepted)
+#             if not accepted:
+#                 self._log.debug('All polygons have been eliminated! Bailing out')
             self.dst_ds.DeleteLayer(1)
             z += self.step
         return z
@@ -251,8 +252,9 @@ limit 1
             z = self._process(z, z_max)
 
 
-    def _remove_contaminated(self, z, polygon):
+    def _remove_contaminated(self, z, feat):
         "Test whether polygon is contaminated and remove points within"
+        polygon = feat.GetGeometryRef()
         self.boundary.ResetReading()
         touches_boundary = False
         for feature in self.boundary:
@@ -333,65 +335,52 @@ limit 1
         z = self.raster_value(centroid)
         return self._add_bottom_point(z, centroid)
 
-    def _findpoly(self, z, lyr):
+    def _consider_polygon(self, z, feat):
         """Find polygons for inlets"""
-        self._log.debug('Searching for one in %d polygons...', lyr.GetFeatureCount())
-        found_any = False
-        try:
-            if self.find_bottom in ['fast', 'rigorous']:
-                found_any = True
-        except (KeyError, AttributeError):
-            pass
+        polygon = feat.GetGeometryRef()
 
-        lyr.ResetReading()
-        for p in lyr:
-            polygon = p.GetGeometryRef()
-            if self._remove_contaminated(z, polygon):
-                continue
+        # Find all points within, select first lowest, link & delete others
+        # TODO: there should be no point elevation check as we discover points on the go
+        # This is valid however only for auto discovery but not existing starting points
+        within = [(k, v[1]) for k, v in self.pts_dict.items() if v[1] <= z and v[0].Within(polygon)]
 
-            # Find all points within, select first lowest, link & delete others
-            # TODO: there should be no point elevation check as we discover points on the go
-            # This is valid however only for auto discovery but not existing starting points
-            within = [(k, v[1]) for k, v in self.pts_dict.items() if v[1] <= z and v[0].Within(polygon)]
-
+        if len(within):
+            within = sorted(within, key=itemgetter(1))
+            k = within.pop(0)[0]
             if len(within):
-                within = sorted(within, key=itemgetter(1))
-                k = within.pop(0)[0]
-                if len(within):
-                    gids = ','.join(str(k) for k, _ in within)
-                    self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
-                    self._log.debug('Merging %s points into %d', gids, k)
-                    for kk, _ in within:
-                        del self.pts_dict[kk]
-            else:
-                try:
-                    method = {'fast': self._add_centroid_bottom,
-                              'rigorous': self._add_minimum_bottom}[self.find_bottom]
-                except (KeyError, AttributeError):
-                    continue
-                k = method(polygon)
+                gids = ','.join(str(k) for k, _ in within)
+                self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
+                self._log.debug('Merging %s points into %d', gids, k)
+                for kk, _ in within:
+                    del self.pts_dict[kk]
+        else:
+            try:
+                method = {'fast': self._add_centroid_bottom,
+                          'rigorous': self._add_minimum_bottom}[self.find_bottom]
+            except (KeyError, AttributeError):
+                # No points are within and we can't add any so let's jump to next inlet above
+                return False
+            k = method(polygon)
 
-            zmin = self.pts_dict[k][1]
+        zmin = self.pts_dict[k][1]
 
-            self._log.debug('Found polygon for point %d at %.2f', k, z)
-            feat = ogr.Feature(self.polys.GetLayerDefn())
-            feat.SetField('polygon', p.GetFID())
-            feat.SetField('point', k)
-            # Somehow without float() it says NotImplementedError: Wrong number of arguments for overloaded function 'Feature_SetField'.
-            feat.SetField('z', float(z))
-            feat.SetField('stage', float(z - zmin))
-            feat.SetGeometry(polygon)
-            area = polygon.GetArea()
-            feat.SetField('area', area)
-            self.polys.CreateFeature(feat)
-            if area > self.max_area or zmin < z - self.max_height:
-                self._log.debug('Either area (%.1f) is getting too big for %d or it is way below z. Removing.', area, k)
-                del self.pts_dict[k]
-            else:
-                # No need to mark if it was the last for given elevation
-                found_any = True
+        self._log.debug('Found polygon for point %d at %.2f', k, z)
+        f = ogr.Feature(self.polys.GetLayerDefn())
+        f.SetField('polygon', feat.GetFID())
+        f.SetField('point', k)
+        # Somehow without float() it says NotImplementedError: Wrong number of arguments for overloaded function 'Feature_SetField'.
+        f.SetField('z', float(z))
+        f.SetField('stage', float(z - zmin))
+        f.SetGeometry(polygon)
+        area = polygon.GetArea()
+        f.SetField('area', area)
+        self.polys.CreateFeature(f)
+        if area > self.max_area or zmin < z - self.max_height:
+            self._log.debug('Either area (%.1f) is getting too big for %d or it is way below z. Removing.', area, k)
+            del self.pts_dict[k]
+            return False
 
-        return found_any
+        return True
 
     def run(self):
         self._read()
