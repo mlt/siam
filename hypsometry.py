@@ -227,10 +227,10 @@ limit 1
             if self.pts is None:
                 self._log.critical('Failed to open bottoms layer')
 
-    def _process(self, z, z_max):
+    def _process(self, z):
         """Elevation steps for a 'given' inlet and possibly others"""
         accepted = 1
-        while z<=z_max and accepted>0:
+        while accepted>0:
             tmp = self.raster <= z
             self.imb.WriteArray(tmp.astype(np.byte))
             self._log.debug('Polygonizing...')
@@ -250,13 +250,9 @@ limit 1
 
     def _process_queue(self):
         """Main loop to deal with elevations queue"""
-        z = -sys.maxint - 1
         for z_inlet in self.z:
-            if z < z_inlet:
-                z = z_inlet
-                self._log.debug("Moving to next inlet elevation")
-            z_max = z_inlet + self.max_height
-            z = self._process(z, z_max)
+            self._log.debug("Moving to next elevation in queue %.2f", z_inlet)
+            self._process(z_inlet)
 
 
     def _remove_contaminated(self, z, feat):
@@ -340,7 +336,7 @@ limit 1
         x = geom.GetX()
         y = geom.GetY()
         self.pts_idx.insert(k, (x, y, z, x, y, z))
-        return k, geom
+        return k
 
     def _add_centroid_bottom(self, polygon):
         """
@@ -370,7 +366,6 @@ limit 1
         if len(within):
             lowest = min(enumerate(within), key=lambda tup: self.pts_dict[tup[1].id].GetZ())[0]
             k = within.pop(lowest).id
-            pt = self.pts_dict[k]
             if len(within):
                 gids = ','.join(str(k.id) for k in within)
                 self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
@@ -390,9 +385,9 @@ limit 1
             except (KeyError, AttributeError):
                 # No points are within and we can't add any so let's jump to next inlet above
                 return False
-            k, pt = method(polygon)
+            k = method(polygon)
 
-        zmin = pt.GetZ()
+        zmin = self.pts_dict[k].GetZ()
 
         self._log.debug('Found polygon for point %d at %.2f', k, z)
         f = ogr.Feature(self.polys.GetLayerDefn())
@@ -405,15 +400,6 @@ limit 1
         area = polygon.GetArea()
         f.SetField('area', area)
         self.polys.CreateFeature(f)
-        if area > self.max_area or zmin < z - self.max_height:
-            self._log.debug('Either area (%.1f) is getting too big for %d or it is way below z. Removing.', area, k)
-            x = pt.GetX()
-            y = pt.GetY()
-            z = pt.GetZ()
-            self.pts_idx.delete(k, (x, y, z, x, y, z))
-            del self.pts_dict[k]
-            return False
-
         return True
 
     def run(self):
@@ -660,12 +646,6 @@ if __name__ == '__main__':
                         help='An output recognizeable by OGR')
     parser.add_argument('--table', default='hypsometry',
                         help='Table name in DB defined by OUT. Existing table if any will be dropped!')
-    parser.add_argument('--max-height', type=float,
-                        default=2,
-                        help='Maximum stage')
-    parser.add_argument('--max-area', type=float,
-                        default=1e5,
-                        help='Maximum area')
     parser.add_argument('--step', type=float,
                         default=.01,
                         help='Stage step')
