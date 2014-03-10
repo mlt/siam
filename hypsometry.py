@@ -13,7 +13,6 @@ import argparse
 import multiprocessing as mp
 from copy import deepcopy
 from MultiProcessingLog import QueueHandler, QueueListener
-from operator import itemgetter
 import sys
 import Image
 from ImageDraw import Draw
@@ -359,17 +358,16 @@ limit 1
         # This is valid however only for auto discovery but not existing starting points
         env = polygon.GetEnvelope()
         pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z))
-        within = [(k, v[1]) for k, v in self.pts_dict.items() if v[1] <= z and v[0].Within(polygon)]
-        assert len(list(pre)) >= len(within)
+        within = [k for k in pre if self.pts_dict.has_key(k) and self.pts_dict[k][0].Within(polygon)]
 
         if len(within):
-            within = sorted(within, key=itemgetter(1))
-            k = within.pop(0)[0]
+            within = sorted(within, key=lambda fid: self.pts_dict[fid][0].GetZ())
+            k = within.pop(0)
             if len(within):
-                gids = ','.join(str(k) for k, _ in within)
+                gids = ','.join(str(k) for k in within)
                 self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
                 self._log.debug('Merging %s points into %d', gids, k)
-                for kk, _ in within:
+                for kk in within:
                     geom = self.pts_dict[kk][0]
                     x = geom.GetX()
                     y = geom.GetY()
