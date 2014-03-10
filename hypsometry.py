@@ -269,7 +269,7 @@ limit 1
                 self._log.debug('Reached boundary. Skipping.')
                 env = polygon.GetEnvelope()
                 pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z))
-                within = set(k for k in pre if self.pts_dict.has_key(k) and self.pts_dict[k][0].Within(polygon))
+                within = set(k for k in pre if self.pts_dict[k][0].Within(polygon))
                 for fid in within:
                     geom = self.pts_dict[fid][0]
                     x = geom.GetX()
@@ -364,7 +364,7 @@ limit 1
         # This is valid however only for auto discovery but not existing starting points
         env = polygon.GetEnvelope()
         pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z))
-        within = [k for k in pre if self.pts_dict.has_key(k) and self.pts_dict[k][0].Within(polygon)]
+        within = [k for k in pre if self.pts_dict[k][0].Within(polygon)]
 
         if len(within):
             within = sorted(within, key=lambda fid: self.pts_dict[fid][0].GetZ())
