@@ -268,15 +268,16 @@ limit 1
             if boundary.Intersects(polygon):
                 self._log.debug('Reached boundary. Skipping.')
                 env = polygon.GetEnvelope()
-                pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z))
-                within = (item for item in pre if self.pts_dict[item].Within(polygon))
+                pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z), True)
+                within = (item for item in pre if self.pts_dict[item.id].Within(polygon))
+#                 idx_in = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
+#                 cnt = 0
                 for item in within:
-                    geom = self.pts_dict[item]
-                    x = geom.GetX()
-                    y = geom.GetY()
-                    z = geom.GetZ()
-                    self.pts_idx.delete(item, (x, y, z, x, y, z))
-                    del self.pts_dict[item]
+                    self.pts_idx.delete(item.id, item.bbox)
+                    del self.pts_dict[item.id]
+#                     cnt += 1
+#                 idx_out = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
+#                 assert cnt == (idx_in - idx_out)
                 return True
 
         return False
@@ -363,24 +364,25 @@ limit 1
         # TODO: there should be no point elevation check as we discover points on the go
         # This is valid however only for auto discovery but not existing starting points
         env = polygon.GetEnvelope()
-        pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z))
-        within = [item for item in pre if self.pts_dict[item].Within(polygon)]
+        pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z), True)
+        within = [item for item in pre if self.pts_dict[item.id].Within(polygon)]
 
         if len(within):
-            lowest = min(enumerate(within), key=lambda tup: self.pts_dict[tup[1]].GetZ())[0]
-            k = within.pop(lowest)
+            lowest = min(enumerate(within), key=lambda tup: self.pts_dict[tup[1].id].GetZ())[0]
+            k = within.pop(lowest).id
             pt = self.pts_dict[k]
             if len(within):
-                gids = ','.join(str(k) for k in within)
+                gids = ','.join(str(k.id) for k in within)
                 self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
                 self._log.debug('Merging %s points into %d', gids, k)
+#                 idx_in = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
+#                 cnt = 0
                 for item in within:
-                    geom = self.pts_dict[item]
-                    x = geom.GetX()
-                    y = geom.GetY()
-                    z = geom.GetZ()
-                    self.pts_idx.delete(item, (x, y, z, x, y, z))
-                    del self.pts_dict[item]
+                    self.pts_idx.delete(item.id, item.bbox)
+                    del self.pts_dict[item.id]
+#                     cnt += 1
+#                 idx_out = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
+#                 assert cnt == (idx_in - idx_out)
         else:
             try:
                 method = {'fast': self._add_centroid_bottom,
