@@ -13,10 +13,10 @@ import argparse
 import multiprocessing as mp
 from copy import deepcopy
 from MultiProcessingLog import QueueHandler, QueueListener
-from operator import itemgetter
 import sys
 import Image
 from ImageDraw import Draw
+from rtree import index
 
 try:
     from osgeo import gdal, osr, ogr
@@ -33,6 +33,11 @@ class Hypsometry:
 
         self.__dict__.update(args)
         self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
+        self.pts_dict = dict()  # inlet FID => feature
+        self.z = []             # inlet elevations in ascending order
+        p = index.Property()
+        p.dimension = 3
+        self.pts_idx = index.Index(properties=p)
 
     def _read(self):
         """Read in input data into memory"""
@@ -105,8 +110,7 @@ where ST_Contains(geom, rast::geometry)
         masked = np.ma.masked_array(self.raster, mask=np.isclose(self.raster, self.NODATA))
         zmin = masked.min()
         self.max_height = sys.maxint
-        self.z = [ zmin ]
-        self.pts_dict = dict()
+        self.z.append(zmin)
 
     @staticmethod
     def _transform(transform, x, y):
@@ -133,17 +137,20 @@ Perhaps would be better to use SQL but this way we hopefully can use a
 
         """
         self.pts.ResetReading()
-        self.pts_dict = dict()  # inlet FID => (feature, elevation)
-        self.z = []             # inlet elevations in ascending order
-
-        for pt in self.pts:
-            geom = pt.GetGeometryRef().Clone()
-            self._log.debug("%d => %.3f, %.3f", pt.GetFID(), geom.GetX(), geom.GetY())
+        for feat in self.pts:
+            geom = feat.GetGeometryRef().Clone()
+            x = geom.GetX()
+            y = geom.GetY()
+            fid = feat.GetFID()
+            self._log.debug("%d => %.3f, %.3f", fid, geom.GetX(), geom.GetY())
 
             try:
                 val = self.raster_value(geom)
                 if val != self.NODATA: # GDAL 1.9 is broken also should not(?) compare floats
-                    self.pts_dict[pt.GetFID()] = (geom, val)
+                    pt = ogr.Geometry(ogr.wkbPoint25D)
+                    pt.SetPoint(0, x, y, float(val))
+                    self.pts_dict[fid] = pt
+                    self.pts_idx.insert(fid, (x, y, val, x, y, val))
                     self.z.append(val)
             except IndexError:
                 pass
@@ -155,7 +162,7 @@ Perhaps would be better to use SQL but this way we hopefully can use a
         # self._log.debug('Finding lowest point in partition {:d}'.format(self.part))
         lyr = self.conn_ogr.ExecuteSQL("""
 insert into {layer:s} (z, geom, pid)
-select (gv).val, ST_Centroid((gv).geom) geom, {pid:d}
+select (gv).val, ST_Force_3D(ST_Centroid((gv).geom)) geom, {pid:d}
 from (
   select ST_DumpAsPolygons(ST_Union(ST_Clip(rast, geom))) gv
   from {dem:s}, {poly:s}
@@ -169,16 +176,16 @@ limit 1
         returning gid, z, geom;""".format(
             layer=self.layer, pid=self.part, dem=self.dem_table, poly=self.dem_parts))
         assert 1 == lyr.GetFeatureCount()
-        pt = lyr.GetNextFeature()
-        geom = pt.GetGeometryRef().Clone()
-        # self._log.info("We got gid={:d} z={:f}".format(pt.GetField('gid'), pt.GetField('z')))
-        # self._log.info("fid=%d, x=%f", pt.GetFID(), g.GetX())
-        z = pt.GetField('z')
-        self.z = [ z ]
-        # For now we use partition number as we assume 1 bottom per
-        # partition. However we should use generated
-        # pt.GetField('gid') and use partition-bottom mapping table.
-        self.pts_dict = { self.part : (geom, z)}
+        feat = lyr.GetNextFeature()
+        geom = feat.GetGeometryRef()
+        pt = ogr.Geometry(ogr.wkbPoint25D)
+        x = geom.GetX()
+        y = geom.GetY()
+        z = feat.GetField('z')
+        pt.SetPoint(0, x, y, z)
+        self.z.append(z)
+        self.pts_dict[self.part] = pt
+        self.pts_idx.insert(self.part, (x, y, z, x, y, z))
         self.conn_ogr.ReleaseResultSet(lyr)
 
     def _mkmem(self):
@@ -220,10 +227,10 @@ limit 1
             if self.pts is None:
                 self._log.critical('Failed to open bottoms layer')
 
-    def _process(self, z, z_max):
+    def _process(self, z):
         """Elevation steps for a 'given' inlet and possibly others"""
         accepted = 1
-        while z<=z_max and accepted>0:
+        while accepted>0:
             tmp = self.raster <= z
             self.imb.WriteArray(tmp.astype(np.byte))
             self._log.debug('Polygonizing...')
@@ -243,29 +250,33 @@ limit 1
 
     def _process_queue(self):
         """Main loop to deal with elevations queue"""
-        z = -sys.maxint - 1
         for z_inlet in self.z:
-            if z < z_inlet:
-                z = z_inlet
-                self._log.debug("Moving to next inlet elevation")
-            z_max = z_inlet + self.max_height
-            z = self._process(z, z_max)
+            self._log.debug("Moving to next elevation in queue %.2f", z_inlet)
+            self._process(z_inlet)
 
 
     def _remove_contaminated(self, z, feat):
         "Test whether polygon is contaminated and remove points within"
         polygon = feat.GetGeometryRef()
         self.boundary.ResetReading()
-        touches_boundary = False
         for feature in self.boundary:
             boundary = feature.GetGeometryRef()
             if boundary.Intersects(polygon):
                 self._log.debug('Reached boundary. Skipping.')
-                self.pts_dict = {k:v for k, v in self.pts_dict.iteritems() if v[1] > z or not v[0].Within(polygon)}
-                touches_boundary = True
-                break
+                env = polygon.GetEnvelope()
+                pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z), True)
+                within = (item for item in pre if self.pts_dict[item.id].Within(polygon))
+#                 idx_in = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
+#                 cnt = 0
+                for item in within:
+                    self.pts_idx.delete(item.id, item.bbox)
+                    del self.pts_dict[item.id]
+#                     cnt += 1
+#                 idx_out = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
+#                 assert cnt == (idx_in - idx_out)
+                return True
 
-        return touches_boundary
+        return False
 
     def _add_minimum_bottom(self, polygon):
         """Accurately find the lowest location within a polygon.
@@ -299,12 +310,12 @@ limit 1
         y, x = np.unravel_index(np.argmin(masked), mask.shape)
         z = self.raster[y, x]
         assert not np.isclose(z, self.NODATA)
-        pt = ogr.Geometry(ogr.wkbPoint)
+        pt = ogr.Geometry(ogr.wkbPoint25D)
         easting, northing = self._pixel2world(x, y)
-        pt.SetPoint_2D(0, easting, northing)
-        return self._add_bottom_point(z, pt)
+        pt.SetPoint(0, easting, northing, float(z))
+        return self._add_bottom_point(pt)
 
-    def _add_bottom_point(self, z, geom):
+    def _add_bottom_point(self, geom):
         """
         Add point feature (bottom) to the output layer
 
@@ -314,13 +325,17 @@ limit 1
         :rtype: int
         """
         f = ogr.Feature(self.pts.GetLayerDefn())
-        f.SetField('z', float(z))
+        z = geom.GetZ()
+        f.SetField('z', z)
         f.SetField('pid', self.part)
         f.SetGeometry(geom)
         self.pts.CreateFeature(f)
         k = f.GetFID()
         self._log.debug('Created %d', k)
-        self.pts_dict[k] = (geom, z)
+        self.pts_dict[k] = geom
+        x = geom.GetX()
+        y = geom.GetY()
+        self.pts_idx.insert(k, (x, y, z, x, y, z))
         return k
 
     def _add_centroid_bottom(self, polygon):
@@ -333,7 +348,9 @@ limit 1
         """
         centroid = polygon.Centroid()
         z = self.raster_value(centroid)
-        return self._add_bottom_point(z, centroid)
+        pt = ogr.Geometry(ogr.wkbPoint25D)
+        pt.SetPoint(0, centroid.GetX(), centroid.GetY(), float(z))
+        return self._add_bottom_point(pt)
 
     def _consider_polygon(self, z, feat):
         """Find polygons for inlets"""
@@ -342,17 +359,25 @@ limit 1
         # Find all points within, select first lowest, link & delete others
         # TODO: there should be no point elevation check as we discover points on the go
         # This is valid however only for auto discovery but not existing starting points
-        within = [(k, v[1]) for k, v in self.pts_dict.items() if v[1] <= z and v[0].Within(polygon)]
+        env = polygon.GetEnvelope()
+        pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z), True)
+        within = [item for item in pre if self.pts_dict[item.id].Within(polygon)]
 
         if len(within):
-            within = sorted(within, key=itemgetter(1))
-            k = within.pop(0)[0]
+            lowest = min(enumerate(within), key=lambda tup: self.pts_dict[tup[1].id].GetZ())[0]
+            k = within.pop(lowest).id
             if len(within):
-                gids = ','.join(str(k) for k, _ in within)
+                gids = ','.join(str(k.id) for k in within)
                 self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
                 self._log.debug('Merging %s points into %d', gids, k)
-                for kk, _ in within:
-                    del self.pts_dict[kk]
+#                 idx_in = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
+#                 cnt = 0
+                for item in within:
+                    self.pts_idx.delete(item.id, item.bbox)
+                    del self.pts_dict[item.id]
+#                     cnt += 1
+#                 idx_out = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
+#                 assert cnt == (idx_in - idx_out)
         else:
             try:
                 method = {'fast': self._add_centroid_bottom,
@@ -362,7 +387,7 @@ limit 1
                 return False
             k = method(polygon)
 
-        zmin = self.pts_dict[k][1]
+        zmin = self.pts_dict[k].GetZ()
 
         self._log.debug('Found polygon for point %d at %.2f', k, z)
         f = ogr.Feature(self.polys.GetLayerDefn())
@@ -375,11 +400,6 @@ limit 1
         area = polygon.GetArea()
         f.SetField('area', area)
         self.polys.CreateFeature(f)
-        if area > self.max_area or zmin < z - self.max_height:
-            self._log.debug('Either area (%.1f) is getting too big for %d or it is way below z. Removing.', area, k)
-            del self.pts_dict[k]
-            return False
-
         return True
 
     def run(self):
@@ -457,7 +477,7 @@ class Starter:
         self.srs = lyr.GetSpatialRef()
 
         out_ogr = ogr.Open(self.out, True)
-        output_lyr = out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
+        output_lyr = out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon25D, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
         if output_lyr is None:
             self._log.critical('Failed to create an output layer %s', self.table)
         fd = ogr.FieldDefn('z', ogr.OFTReal)
@@ -474,7 +494,7 @@ class Starter:
 
         if getattr(self, 'find_bottom', False):
             self._log.info("Creating layer for POIs in '%s'", self.layer)
-            pts_lyr = self.conn_ogr.CreateLayer(self.layer, self.srs, ogr.wkbPoint, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
+            pts_lyr = self.conn_ogr.CreateLayer(self.layer, self.srs, ogr.wkbPoint25D, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
             if pts_lyr is None:
                 self._log.critical('Failed to create a point layer %s', self.layer)
             fd = ogr.FieldDefn('z', ogr.OFTReal)
@@ -626,12 +646,6 @@ if __name__ == '__main__':
                         help='An output recognizeable by OGR')
     parser.add_argument('--table', default='hypsometry',
                         help='Table name in DB defined by OUT. Existing table if any will be dropped!')
-    parser.add_argument('--max-height', type=float,
-                        default=2,
-                        help='Maximum stage')
-    parser.add_argument('--max-area', type=float,
-                        default=1e5,
-                        help='Maximum area')
     parser.add_argument('--step', type=float,
                         default=.01,
                         help='Stage step')
