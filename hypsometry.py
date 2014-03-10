@@ -263,17 +263,23 @@ limit 1
         "Test whether polygon is contaminated and remove points within"
         polygon = feat.GetGeometryRef()
         self.boundary.ResetReading()
-        touches_boundary = False
         for feature in self.boundary:
             boundary = feature.GetGeometryRef()
             if boundary.Intersects(polygon):
                 self._log.debug('Reached boundary. Skipping.')
-                self.pts_dict = {k:v for k, v in self.pts_dict.iteritems() if v[1] > z or not v[0].Within(polygon)}
-                # FIXME: remove index as well!!
-                touches_boundary = True
-                break
+                env = polygon.GetEnvelope()
+                pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z))
+                within = set(k for k in pre if self.pts_dict.has_key(k) and self.pts_dict[k][0].Within(polygon))
+                for fid in within:
+                    geom = self.pts_dict[fid][0]
+                    x = geom.GetX()
+                    y = geom.GetY()
+                    z = geom.GetZ()
+                    self.pts_idx.delete(fid, (x, y, z, x, y, z))
+                self.pts_dict = {k:v for k, v in self.pts_dict.iteritems() if not k in within}
+                return True
 
-        return touches_boundary
+        return False
 
     def _add_minimum_bottom(self, polygon):
         """Accurately find the lowest location within a polygon.
