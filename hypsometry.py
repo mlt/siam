@@ -33,6 +33,7 @@ class Hypsometry:
 
         self.__dict__.update(args)
         self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
+        self.pts_dict = dict()  # inlet FID => feature
         self.z = []             # inlet elevations in ascending order
         p = index.Property()
         p.dimension = 3
@@ -148,7 +149,8 @@ Perhaps would be better to use SQL but this way we hopefully can use a
                 if val != self.NODATA: # GDAL 1.9 is broken also should not(?) compare floats
                     pt = ogr.Geometry(ogr.wkbPoint25D)
                     pt.SetPoint(0, x, y, float(val))
-                    self.pts_idx.insert(fid, (x, y, val, x, y, val), pt)
+                    self.pts_dict[fid] = pt
+                    self.pts_idx.insert(fid, (x, y, val, x, y, val))
                     self.z.append(val)
             except IndexError:
                 pass
@@ -182,7 +184,8 @@ limit 1
         z = feat.GetField('z')
         pt.SetPoint(0, x, y, z)
         self.z.append(z)
-        self.pts_idx.insert(self.part, (x, y, z, x, y, z), pt)
+        self.pts_dict[self.part] = pt
+        self.pts_idx.insert(self.part, (x, y, z, x, y, z))
         self.conn_ogr.ReleaseResultSet(lyr)
 
     def _mkmem(self):
@@ -265,14 +268,15 @@ limit 1
             if boundary.Intersects(polygon):
                 self._log.debug('Reached boundary. Skipping.')
                 env = polygon.GetEnvelope()
-                pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z), True)
-                within = [item for item in pre if item.object.Within(polygon)]
+                pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z))
+                within = (item for item in pre if self.pts_dict[item].Within(polygon))
                 for item in within:
-                    geom = item.object
+                    geom = self.pts_dict[item]
                     x = geom.GetX()
                     y = geom.GetY()
                     z = geom.GetZ()
-                    self.pts_idx.delete(item.id, (x, y, z, x, y, z))
+                    self.pts_idx.delete(item, (x, y, z, x, y, z))
+                    del self.pts_dict[item]
                 return True
 
         return False
@@ -331,9 +335,10 @@ limit 1
         self.pts.CreateFeature(f)
         k = f.GetFID()
         self._log.debug('Created %d', k)
+        self.pts_dict[k] = geom
         x = geom.GetX()
         y = geom.GetY()
-        self.pts_idx.insert(k, (x, y, z, x, y, z), geom)
+        self.pts_idx.insert(k, (x, y, z, x, y, z))
         return k, geom
 
     def _add_centroid_bottom(self, polygon):
@@ -358,24 +363,24 @@ limit 1
         # TODO: there should be no point elevation check as we discover points on the go
         # This is valid however only for auto discovery but not existing starting points
         env = polygon.GetEnvelope()
-        pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z), True)
-        within = [item for item in pre if item.object.Within(polygon)]
+        pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z))
+        within = [item for item in pre if self.pts_dict[item].Within(polygon)]
 
         if len(within):
-            within = sorted(within, key=lambda item: item.object.GetZ())
-            item = within.pop(0)
-            k = item.id
-            pt = item.object
+            within = sorted(within, key=lambda item: self.pts_dict[item].GetZ())
+            k = within.pop(0)
+            pt = self.pts_dict[k]
             if len(within):
-                gids = ','.join(str(k.id) for k in within)
+                gids = ','.join(str(k) for k in within)
                 self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
                 self._log.debug('Merging %s points into %d', gids, k)
                 for item in within:
-                    geom = item.object
+                    geom = self.pts_dict[item]
                     x = geom.GetX()
                     y = geom.GetY()
                     z = geom.GetZ()
-                    self.pts_idx.delete(item.id, (x, y, z, x, y, z))
+                    self.pts_idx.delete(item, (x, y, z, x, y, z))
+                    del self.pts_dict[item]
         else:
             try:
                 method = {'fast': self._add_centroid_bottom,
@@ -404,6 +409,7 @@ limit 1
             y = pt.GetY()
             z = pt.GetZ()
             self.pts_idx.delete(k, (x, y, z, x, y, z))
+            del self.pts_dict[k]
             return False
 
         return True
