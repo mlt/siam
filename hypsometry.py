@@ -367,8 +367,8 @@ limit 1
         within = [item for item in pre if self.pts_dict[item].Within(polygon)]
 
         if len(within):
-            within = sorted(within, key=lambda item: self.pts_dict[item].GetZ())
-            k = within.pop(0)
+            lowest = min(enumerate(within), key=lambda tup: self.pts_dict[tup[1]].GetZ())[0]
+            k = within.pop(lowest)
             pt = self.pts_dict[k]
             if len(within):
                 gids = ','.join(str(k) for k in within)
