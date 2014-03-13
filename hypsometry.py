@@ -483,8 +483,8 @@ class Starter:
                 lyr = self.conn_ogr.GetLayerByName(self.layer)
         self.srs = lyr.GetSpatialRef()
 
-        out_ogr = ogr.Open(self.out, True)
-        output_lyr = out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon25D, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
+        self.out_ogr = ogr.Open(self.out, True)
+        output_lyr = self.out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon25D, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
         if output_lyr is None:
             self._log.critical('Failed to create an output layer %s', self.table)
         fd = ogr.FieldDefn('z', ogr.OFTReal)
@@ -607,6 +607,10 @@ create index on {side_inlets_parts:s}(pid);
         else:
             h = Hypsometry(self.args)
             h.run()
+        self.add_indices()
+
+    def add_indices(self):
+        self.out_ogr.ExecuteSQL('create index on "%s" (point)' % self.table)
 
     def kill(self):
         """To be used from GUI thread to abort operations"""
