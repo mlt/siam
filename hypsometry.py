@@ -17,6 +17,7 @@ import sys
 import Image
 from ImageDraw import Draw
 from rtree import index
+from collections import defaultdict
 
 try:
     from osgeo import gdal, osr, ogr
@@ -34,6 +35,8 @@ class Hypsometry:
         self.__dict__.update(args)
         self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
         self.pts_dict = dict()  # inlet FID => feature
+        self.volume = defaultdict(float)    #: inlet FID => volume
+        self.area = defaultdict(float)      #: inlet FID => last slice area
         self.z = []             # inlet elevations in ascending order
         p = index.Property()
         p.dimension = 3
@@ -395,10 +398,14 @@ limit 1
         f.SetField('point', k)
         # Somehow without float() it says NotImplementedError: Wrong number of arguments for overloaded function 'Feature_SetField'.
         f.SetField('z', float(z))
-        f.SetField('stage', float(z - zmin))
+        stage = float(z - zmin)
+        f.SetField('stage', stage)
         f.SetGeometry(polygon)
         area = polygon.GetArea()
         f.SetField('area', area)
+        self.volume[k] += min(stage, self.step) * .5*(area + self.area[k])
+        self.area[k] = area
+        f.SetField('volume', self.volume[k])
         self.polys.CreateFeature(f)
         return True
 
@@ -490,6 +497,8 @@ class Starter:
         fd = ogr.FieldDefn('stage', ogr.OFTReal)
         output_lyr.CreateField(fd)
         fd = ogr.FieldDefn('area', ogr.OFTReal)
+        output_lyr.CreateField(fd)
+        fd = ogr.FieldDefn('volume', ogr.OFTReal)
         output_lyr.CreateField(fd)
 
         if getattr(self, 'find_bottom', False):
