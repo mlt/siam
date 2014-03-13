@@ -390,7 +390,7 @@ limit 1
                 return False
             k = method(polygon)
 
-        zmin = self.pts_dict[k].GetZ()
+        zmin = min(z, self.pts_dict[k].GetZ()) # odd small negatives
 
         self._log.debug('Found polygon for point %d at %.2f', k, z)
         f = ogr.Feature(self.polys.GetLayerDefn())
