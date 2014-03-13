@@ -141,11 +141,11 @@ Perhaps would be better to use SQL but this way we hopefully can use a
         """
         self.pts.ResetReading()
         for feat in self.pts:
-            geom = feat.GetGeometryRef().Clone()
+            geom = feat.GetGeometryRef()
             x = geom.GetX()
             y = geom.GetY()
             fid = feat.GetFID()
-            self._log.debug("%d => %.3f, %.3f", fid, geom.GetX(), geom.GetY())
+            self._log.debug("%d => %.3f, %.3f", fid, x, y)
 
             try:
                 val = self.raster_value(geom)
