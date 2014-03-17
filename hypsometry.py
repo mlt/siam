@@ -479,6 +479,8 @@ class Starter:
             self.layer = None
         else:
             if getattr(self, 'find_bottom', False):
+                if getattr(self, 'bufferme', False):
+                    self.make_parts()
                 lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
             else:
                 lyr = self.conn_ogr.GetLayerByName(self.layer)
@@ -539,6 +541,44 @@ create unlogged table {layer} (
                 fd = ogr.FieldDefn('pid', ogr.OFTInteger)
                 pts_lyr.CreateField(fd)
 
+    def make_parts(self):
+        "Make one-sided buffers around line features"
+        lyr = self.conn_ogr.GetLayerByName(self.bufferme)
+        srs = lyr.GetSpatialRef()
+        if srs is None:
+            self._log.critical("Failed to get spatial reference for line features!")
+        else:
+            srid = int(srs.GetAttrValue("AUTHORITY", 1))
+        self._log.info('Buffering line features')
+        tol = self.radius / 10.
+        sql = """
+drop table if exists {dem_parts};
+create table {dem_parts} (
+  gid serial primary key,
+  gid_orig integer not null,
+  geom geometry(polygon, {srid}) not null
+);
+insert into {dem_parts} (gid, gid_orig, geom)
+select row_number() over() gid, gid gid_orig, geom
+from (
+    select gid,
+     ST_Union(
+        ST_BuildArea(ST_AddPoint(
+        ST_MakeLine(ST_Reverse(geom), ST_MakeValid(ST_OffsetCurve(ST_SimplifyPreserveTopology(geom, {tol}), {radius}))) , ST_EndPoint(geom))),
+        ST_Union(ST_Buffer(ST_StartPoint(geom), {radius}), ST_Buffer(ST_EndPoint(geom), {radius}))
+      ) geom
+    from {ditch}
+    union all
+    select gid,
+     ST_Union(
+        ST_BuildArea(ST_AddPoint(
+        ST_MakeLine(geom, ST_MakeValid(ST_OffsetCurve(ST_SimplifyPreserveTopology(geom, {tol}), -{radius}))) , ST_StartPoint(geom))),
+        ST_Union(ST_Buffer(ST_StartPoint(geom), {radius}), ST_Buffer(ST_EndPoint(geom), {radius}))
+      ) geom
+    from {ditch}
+) foo;
+CREATE INDEX ON {dem_parts} USING gist (geom);""".format(tol=tol, radius=self.radius, ditch=self.bufferme, dem_parts=self.dem_parts, srid=srid)
+        self.conn_ogr.ExecuteSQL(sql)
 
     def _prepare(self):
         """Set up partitions for parallel processing"""
@@ -673,6 +713,8 @@ if __name__ == '__main__':
     parser.add_argument('--dem-table',
                         default='dem50',
                         help='Raster table name with DEM')
+    parser.add_argument('--bufferme',
+                        help='Linestring layer with features to buffer with RADIUS into DEM_PARTS')
     parser.add_argument('--dem-parts',
                         default='dem_parts',
                         help='Table to be created with partition polygons')
