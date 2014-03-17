@@ -41,6 +41,7 @@ class Hypsometry:
         p = index.Property()
         p.dimension = 3
         self.pts_idx = index.Index(properties=p)
+#        gdal.SetConfigOption('PG_USE_COPY', 'YES')
 
     def _read(self):
         """Read in input data into memory"""
@@ -484,36 +485,60 @@ class Starter:
         self.srs = lyr.GetSpatialRef()
 
         self.out_ogr = ogr.Open(self.out, True)
-        output_lyr = self.out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon25D, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
-        if output_lyr is None:
-            self._log.critical('Failed to create an output layer %s', self.table)
-        fd = ogr.FieldDefn('z', ogr.OFTReal)
-        output_lyr.CreateField(fd)
-        # polygon id (for a given z) + z make globally unique polygon id
-        fd = ogr.FieldDefn('polygon', ogr.OFTInteger)
-        output_lyr.CreateField(fd)
-        fd = ogr.FieldDefn('point', ogr.OFTInteger)
-        output_lyr.CreateField(fd)
-        fd = ogr.FieldDefn('stage', ogr.OFTReal)
-        output_lyr.CreateField(fd)
-        fd = ogr.FieldDefn('area', ogr.OFTReal)
-        output_lyr.CreateField(fd)
-        fd = ogr.FieldDefn('volume', ogr.OFTReal)
-        output_lyr.CreateField(fd)
+        srid = int(self.srs.GetAttrValue("AUTHORITY", 1))
+        if getattr(self, 'unlogged', False):
+            sql = """drop table if exists {table};
+create unlogged table {table} (
+  gid serial primary key,
+  geom geometry(PolygonZ, {srid}) not null,
+  z real not null,
+  polygon integer not null,
+  point integer not null,
+  stage real not null,
+  area real not null,
+  volume real not null);""".format(table=self.table, srid=srid)
+            self.out_ogr.ExecuteSQL(sql)
+        else:
+            output_lyr = self.out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','COLUMN_TYPES=z=real,stage=real,area=real,volume=real'])
+            if output_lyr is None:
+                self._log.critical('Failed to create an output layer %s', self.table)
+            fd = ogr.FieldDefn('z', ogr.OFTReal)
+            output_lyr.CreateField(fd)
+            # polygon id (for a given z) + z make globally unique polygon id
+            fd = ogr.FieldDefn('polygon', ogr.OFTInteger)
+            output_lyr.CreateField(fd)
+            fd = ogr.FieldDefn('point', ogr.OFTInteger)
+            output_lyr.CreateField(fd)
+            fd = ogr.FieldDefn('stage', ogr.OFTReal)
+            output_lyr.CreateField(fd)
+            fd = ogr.FieldDefn('area', ogr.OFTReal)
+            output_lyr.CreateField(fd)
+            fd = ogr.FieldDefn('volume', ogr.OFTReal)
+            output_lyr.CreateField(fd)
 
         if getattr(self, 'find_bottom', False):
             self._log.info("Creating layer for POIs in '%s'", self.layer)
-            pts_lyr = self.conn_ogr.CreateLayer(self.layer, self.srs, ogr.wkbPoint25D, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','PG_USE_COPY=YES'])
-            if pts_lyr is None:
-                self._log.critical('Failed to create a point layer %s', self.layer)
-            fd = ogr.FieldDefn('z', ogr.OFTReal)
-            pts_lyr.CreateField(fd)
-            if 'single' != self.find_bottom:
-                fd = ogr.FieldDefn('merge_to', ogr.OFTInteger)
+            if getattr(self, 'unlogged', False):
+                sql = """drop table if exists {layer};
+create unlogged table {layer} (
+  gid serial primary key,
+  geom geometry(PointZ, {srid}) not null,
+  z real not null, {merge}
+  pid integer not null);""".format(layer=self.layer, merge={False: '', True: 'merge_to integer,'}['single' != self.find_bottom], srid=srid)
+                self.out_ogr.ExecuteSQL(sql)
+            else:
+                pts_lyr = self.conn_ogr.CreateLayer(self.layer, self.srs, ogr.wkbPoint25D, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','COLUMN_TYPES=z=real'])
+                if pts_lyr is None:
+                    self._log.critical('Failed to create a point layer %s', self.layer)
+                fd = ogr.FieldDefn('z', ogr.OFTReal)
                 pts_lyr.CreateField(fd)
-            # pid is somewhat useless as gid numbering is global
-            fd = ogr.FieldDefn('pid', ogr.OFTInteger)
-            pts_lyr.CreateField(fd)
+                if 'single' != self.find_bottom:
+                    fd = ogr.FieldDefn('merge_to', ogr.OFTInteger)
+                    pts_lyr.CreateField(fd)
+                # pid is somewhat useless as gid numbering is global
+                fd = ogr.FieldDefn('pid', ogr.OFTInteger)
+                pts_lyr.CreateField(fd)
+
 
     def _prepare(self):
         """Set up partitions for parallel processing"""
@@ -610,7 +635,12 @@ create index on {side_inlets_parts:s}(pid);
         self.add_indices()
 
     def add_indices(self):
+        self._log.info('Building indexes')
         self.out_ogr.ExecuteSQL('create index on "%s" (point)' % self.table)
+        if getattr(self, 'unlogged', False):
+            self.out_ogr.ExecuteSQL('create index on "%s" using gist (geom)' % self.table)
+            if getattr(self, 'find_bottom', False):
+                self.out_ogr.ExecuteSQL('create index on "%s" using gist (geom)' % self.layer)
 
     def kill(self):
         """To be used from GUI thread to abort operations"""
@@ -676,6 +706,8 @@ if __name__ == '__main__':
                         help='Maximum number of parallel processes')
     parser.add_argument('--mp', action='store_true',
                         help='Use multiprocess & partitioning. This is required if --find-bottom is used.')
+    parser.add_argument('--unlogged', action='store_true',
+                        help='Use unlogged PostgreSQL tables')
     parser.add_argument('--profile',
                         help='Prefix for cProfile output')
     # parser.add_argument('--verbose', action='store_true',
