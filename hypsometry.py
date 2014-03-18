@@ -46,7 +46,7 @@ class Hypsometry:
     def _read(self):
         """Read in input data into memory"""
 
-        connstr = "PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user)
+        connstr = "PG:host={:s} port={:s} dbname={:s} user={:s} application_name=siam-{part}".format(self.host, self.port, self.dbname, self.user, part=getattr(self,'part', 0))
         connstr_dem = connstr + " table={:s} mode=2".format(self.dem_table)
         self.conn_ogr = ogr.Open(connstr)
         if getattr(self, 'find_bottom', False):
@@ -266,7 +266,7 @@ limit 1
         for feature in self.boundary:
             boundary = feature.GetGeometryRef()
             if boundary.Intersects(polygon):
-                self._log.debug('Reached boundary. Skipping.')
+                self._log.debug('Reached boundary for %d. Skipping.', feat.GetFID())
                 env = polygon.GetEnvelope()
                 pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z), True)
                 within = (item for item in pre if self.pts_dict[item.id].Within(polygon))
@@ -335,7 +335,6 @@ limit 1
         f.SetGeometry(geom)
         self.pts.CreateFeature(f)
         k = f.GetFID()
-        self._log.debug('Created %d', k)
         self.pts_dict[k] = geom
         x = geom.GetX()
         y = geom.GetY()
@@ -390,6 +389,7 @@ limit 1
                 # No points are within and we can't add any so let's jump to next inlet above
                 return False
             k = method(polygon)
+            self._log.debug('Created %d within %d', k, feat.GetFID())
 
         zmin = min(z, self.pts_dict[k].GetZ()) # odd small negatives
 
@@ -472,7 +472,7 @@ class Starter:
         """Set up output stuff"""
 
         self._log.info("Making output table '%s'", self.table)
-        self.conn_ogr = ogr.Open("PG:host={:s} port={:s} dbname={:s} user={:s}".format(self.host, self.port, self.dbname, self.user))
+        self.conn_ogr = ogr.Open("PG:host={:s} port={:s} dbname={:s} user={:s} application_name=siam".format(self.host, self.port, self.dbname, self.user))
         if exists(self.layer):
             conn = ogr.Open(self.layer)
             lyr = conn.GetLayer()
