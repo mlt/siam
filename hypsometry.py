@@ -14,8 +14,7 @@ import multiprocessing as mp
 from copy import deepcopy
 from MultiProcessingLog import QueueHandler, QueueListener
 import sys
-import Image
-from ImageDraw import Draw
+import Image, ImageDraw
 from rtree import index
 from collections import defaultdict
 
@@ -126,7 +125,7 @@ where ST_Contains(geom, rast::geometry)
         return self._transform(self.invgeotransform, x, y)
 
     def _pixel2world(self, x, y):
-        return self._transform(self.geotransform, x, y)
+        return self._transform(self.geotransform, x + .5, y + .5)
 
     def raster_value(self, geom):
         "Read raster cell value at point"
@@ -163,35 +162,14 @@ Perhaps would be better to use SQL but this way we hopefully can use a
     def _mk_bottom_lyr(self):
         """Find bottom and append it to existing table created by Starter"""
 
-        lyr = self.conn_ogr.ExecuteSQL("""
-insert into {layer:s} (z, geom, pid)
-select (gv).val, ST_Force_3D(ST_Centroid((gv).geom)) geom, {pid:d}
-from (
-  select ST_DumpAsPolygons(ST_Union(ST_Clip(rast, geom))) gv
-  from {dem:s}, {poly:s}
-  where ST_Intersects(rast, geom)
-        and gid={pid:d}
-  group by gid
-) foo
-where (gv).val!=(select ST_BandNoDataValue(rast,1) from {dem:s} where rid=1)
-order by (gv).val
-limit 1
-        returning gid, z, geom;""".format(
-            layer=self.layer, pid=self.part, dem=self.dem_table, poly=self.dem_parts))
-        assert 1 == lyr.GetFeatureCount()
-        feat = lyr.GetNextFeature()
-        fid = feat.GetFID()
-        geom = feat.GetGeometryRef()
-        pt = ogr.Geometry(ogr.wkbPoint25D)
-        x = geom.GetX()
-        y = geom.GetY()
-        z = feat.GetField('z')
-        pt.SetPoint(0, x, y, z)
+        parts_lyr = self.conn_ogr.GetLayerByName(self.dem_parts)
+        feat = parts_lyr.GetFeature(self.part)
+        polygon = feat.GetGeometryRef()
+        fid = self._add_minimum_bottom(polygon)
+        geom = self.pts_dict[fid]
+        z = geom.GetZ()
         self.z.append(z)
-        self.pts_dict[fid] = pt
-        self.pts_idx.insert(fid, (x, y, z, x, y, z))
         self._log.debug('Lowest point {:d} was added to partition {:d}'.format(fid, self.part))
-        self.conn_ogr.ReleaseResultSet(lyr)
 
     def _mkmem(self):
         """Set up in-memory stuff"""
@@ -293,8 +271,16 @@ limit 1
         :rtype: int
         :raises AssertionError: if stumbled upon NODATA. Supplied polygon is expected to be derived previously from valid data.
         """
-        points = polygon.GetGeometryRef(0)
-        rng = xrange(points.GetPointCount())
+
+        img = Image.new('L', self.raster.shape[::-1], 1)
+        draw = ImageDraw.Draw(img)
+        cnt = polygon.GetGeometryCount()
+        for i in range(cnt):
+            points = polygon.GetGeometryRef(i)
+#             if not points.GetGeometryType() in (ogr.wkbLineString,):#ogr.wkbLinearRing,):
+            if ogr.wkbLineString != points.GetGeometryType():
+                points = points.GetGeometryRef(0)
+            rng = xrange(points.GetPointCount())
 #         pixels = np.vstack(self._world2pixel(
 #                                    np.vectorize(points.GetX, otypes=[np.float])(rng),
 #                                    np.vectorize(points.GetY, otypes=[np.float])(rng))).transpose().flatten().tolist() # 67.12 sec
@@ -306,9 +292,9 @@ limit 1
 #                                    np.vectorize(points.GetY)(rng))
 #         pixels = zip(xx, yy) # 67.26 sec
 #         pixels = [self._world2pixel(points.GetX(p), points.GetY(p)) for p in range(points.GetPointCount())] # 65.87 sec
-        pixels = [self._world2pixel(points.GetX(p), points.GetY(p)) for p in rng] # 66.44 sec
-        img = Image.new('L', self.raster.shape[::-1], 1)
-        Draw(img).polygon(pixels)
+            pixels = [self._world2pixel(points.GetX(p), points.GetY(p)) for p in rng] # 66.44 sec
+            draw.polygon(pixels, fill=0, outline=0)
+#         img.save('mask-{:d}.png'.format(self.part))
         mask = np.fromstring(img.tostring(), 'b')
         mask.shape = self.raster.shape
         masked = np.ma.masked_array(self.raster, mask=mask)
@@ -413,6 +399,7 @@ limit 1
 
     def run(self):
         self._read()
+        self._getout()
         if not getattr(self, 'find_bottom', False):
             self._find_pixels()
         else:
@@ -421,7 +408,6 @@ limit 1
             else:
                 self._find_minmax()
         self._mkmem()
-        self._getout()
         self._process_queue()
 
     # def __del__(self):
