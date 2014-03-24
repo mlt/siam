@@ -677,7 +677,8 @@ create index on {side_inlets_parts:s}(pid);
 
     def add_indices(self):
         self._log.info('Building indexes')
-        self.out_ogr.ExecuteSQL('create index on "%s" (point)' % self.table)
+        # set maintenance_work_mem='300MB'
+        self.out_ogr.ExecuteSQL('create index on "%s" (point, volume desc)' % self.table)
         if getattr(self, 'unlogged', False):
             self.out_ogr.ExecuteSQL('create index on "%s" using gist (geom)' % self.table)
             if getattr(self, 'find_bottom', False):
