@@ -163,7 +163,6 @@ Perhaps would be better to use SQL but this way we hopefully can use a
     def _mk_bottom_lyr(self):
         """Find bottom and append it to existing table created by Starter"""
 
-        # self._log.debug('Finding lowest point in partition {:d}'.format(self.part))
         lyr = self.conn_ogr.ExecuteSQL("""
 insert into {layer:s} (z, geom, pid)
 select (gv).val, ST_Force_3D(ST_Centroid((gv).geom)) geom, {pid:d}
@@ -181,6 +180,7 @@ limit 1
             layer=self.layer, pid=self.part, dem=self.dem_table, poly=self.dem_parts))
         assert 1 == lyr.GetFeatureCount()
         feat = lyr.GetNextFeature()
+        fid = feat.GetFID()
         geom = feat.GetGeometryRef()
         pt = ogr.Geometry(ogr.wkbPoint25D)
         x = geom.GetX()
@@ -188,8 +188,9 @@ limit 1
         z = feat.GetField('z')
         pt.SetPoint(0, x, y, z)
         self.z.append(z)
-        self.pts_dict[self.part] = pt
-        self.pts_idx.insert(self.part, (x, y, z, x, y, z))
+        self.pts_dict[fid] = pt
+        self.pts_idx.insert(fid, (x, y, z, x, y, z))
+        self._log.debug('Lowest point {:d} was added to partition {:d}'.format(fid, self.part))
         self.conn_ogr.ReleaseResultSet(lyr)
 
     def _mkmem(self):
