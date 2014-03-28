@@ -249,14 +249,7 @@ Perhaps would be better to use SQL but this way we hopefully can use a
                 env = polygon.GetEnvelope()
                 pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z), True)
                 within = (item for item in pre if self.pts_dict[item.id].Within(polygon))
-#                 idx_in = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
-#                 cnt = 0
-                for item in within:
-                    self.pts_idx.delete(item.id, item.bbox)
-                    del self.pts_dict[item.id]
-#                     cnt += 1
-#                 idx_out = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
-#                 assert cnt == (idx_in - idx_out)
+                self._remove_points(within)
                 return True
 
         return False
@@ -342,6 +335,14 @@ Perhaps would be better to use SQL but this way we hopefully can use a
         pt.SetPoint(0, centroid.GetX(), centroid.GetY(), float(z))
         return self._add_bottom_point(pt)
 
+    def _remove_points(self, within):
+        "Remove points from iterable within checking volume and delete from DB if necessary"
+        for item in within:
+            self.pts_idx.delete(item.id, item.bbox)
+            if hasattr(self, 'min_volume') and self.volume[item.id] < self.min_volume:
+                self.pts.DeleteFeature(item.id)
+            del self.pts_dict[item.id]
+
     def _consider_polygon(self, z, feat):
         """Find polygons for inlets"""
         polygon = feat.GetGeometryRef()
@@ -360,14 +361,7 @@ Perhaps would be better to use SQL but this way we hopefully can use a
                 gids = ','.join(str(k.id) for k in within)
                 self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
                 self._log.debug('Merging %s points into %d', gids, k)
-#                 idx_in = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
-#                 cnt = 0
-                for item in within:
-                    self.pts_idx.delete(item.id, item.bbox)
-                    del self.pts_dict[item.id]
-#                     cnt += 1
-#                 idx_out = self.pts_idx.count((env[0], env[2], -sys.maxint, env[1], env[3], z))
-#                 assert cnt == (idx_in - idx_out)
+                self._remove_points(within)
         else:
             try:
                 method = {'fast': self._add_centroid_bottom,
@@ -642,6 +636,7 @@ create index on {side_inlets_parts:s}(pid);
             pass
         else:
             self.mkout()
+        self.add_indices()
         if getattr(self, 'mp', False):
             parts = self._prepare()
             self.pool = mp.Pool(processes = min(len(parts), self.threads)) # is it that bad to have extra dormant workers??
@@ -659,7 +654,6 @@ create index on {side_inlets_parts:s}(pid);
         else:
             h = Hypsometry(self.args)
             h.run()
-        self.add_indices()
 
     def add_indices(self):
         self._log.info('Building indexes')
@@ -730,6 +724,9 @@ if __name__ == '__main__':
     parser.add_argument('--step', type=float,
                         default=.01,
                         help='Stage step')
+    parser.add_argument('--min-volume', type=float,
+                        default=1.,
+                        help='Minimum volume threshold for depressions to keep. Otherwise remove.')
     parser.add_argument('--radius', type=float,
                         default=500,
                         help='Clip/search radius for partitions')
