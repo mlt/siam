@@ -14,9 +14,9 @@ import multiprocessing as mp
 from copy import deepcopy
 from MultiProcessingLog import QueueHandler, QueueListener
 import sys
-import Image, ImageDraw
 from rtree import index
 from collections import defaultdict
+from helper import Transformer, lowest_point_within_polygon
 
 try:
     from osgeo import gdal, osr, ogr
@@ -97,7 +97,7 @@ where ST_Contains(geom, rast::geometry)
             self._log.critical("Can't open %s", connstr_dem)
             raise Exception()
         self.geotransform = dataset.GetGeoTransform()
-        self.invgeotransform = gdal.InvGeoTransform(self.geotransform)[1]
+        self.transformer = Transformer(self.geotransform)
         self.proj = dataset.GetProjectionRef()
         srs = osr.SpatialReference(self.proj)
         SRID = int(srs.GetAttrValue("AUTHORITY", 1))
@@ -115,21 +115,9 @@ where ST_Contains(geom, rast::geometry)
         self.max_height = sys.maxint
         self.z.append(zmin)
 
-    @staticmethod
-    def _transform(transform, x, y):
-        xx = transform[0] + transform[1] * x + transform[2] * y
-        yy = transform[3] + transform[4] * x + transform[5] * y
-        return xx, yy
-
-    def _world2pixel(self, x, y):
-        return self._transform(self.invgeotransform, x, y)
-
-    def _pixel2world(self, x, y):
-        return self._transform(self.geotransform, x + .5, y + .5)
-
     def raster_value(self, geom):
         "Read raster cell value at point"
-        iPixel, iLine = self._world2pixel(geom.GetX(), geom.GetY())
+        iPixel, iLine = self.transformer.world2pixel(geom.GetX(), geom.GetY())
         return self.raster[iLine, iPixel]
 
     def _find_pixels(self):
@@ -264,39 +252,7 @@ Perhaps would be better to use SQL but this way we hopefully can use a
         :rtype: int
         :raises AssertionError: if stumbled upon NODATA. Supplied polygon is expected to be derived previously from valid data.
         """
-
-        img = Image.new('L', self.raster.shape[::-1], 1)
-        draw = ImageDraw.Draw(img)
-        cnt = polygon.GetGeometryCount()
-        for i in range(cnt):
-            points = polygon.GetGeometryRef(i)
-#             if not points.GetGeometryType() in (ogr.wkbLineString,):#ogr.wkbLinearRing,):
-            if ogr.wkbLineString != points.GetGeometryType():
-                points = points.GetGeometryRef(0)
-            rng = xrange(points.GetPointCount())
-#         pixels = np.vstack(self._world2pixel(
-#                                    np.vectorize(points.GetX, otypes=[np.float])(rng),
-#                                    np.vectorize(points.GetY, otypes=[np.float])(rng))).transpose().flatten().tolist() # 67.12 sec
-#         pixels = np.vstack(self._world2pixel(
-#                                    np.vectorize(points.GetX)(rng),
-#                                    np.vectorize(points.GetY)(rng))).transpose().flatten().tolist() # 66.8 sec
-#         xx, yy = self._world2pixel(
-#                                    np.vectorize(points.GetX)(rng),
-#                                    np.vectorize(points.GetY)(rng))
-#         pixels = zip(xx, yy) # 67.26 sec
-#         pixels = [self._world2pixel(points.GetX(p), points.GetY(p)) for p in range(points.GetPointCount())] # 65.87 sec
-            pixels = [self._world2pixel(points.GetX(p), points.GetY(p)) for p in rng] # 66.44 sec
-            draw.polygon(pixels, fill=0, outline=0)
-#         img.save('mask-{:d}.png'.format(self.part))
-        mask = np.fromstring(img.tostring(), 'b')
-        mask.shape = self.raster.shape
-        masked = np.ma.masked_array(self.raster, mask=mask)
-        y, x = np.unravel_index(np.argmin(masked), mask.shape)
-        z = self.raster[y, x]
-        assert not np.isclose(z, self.NODATA)
-        pt = ogr.Geometry(ogr.wkbPoint25D)
-        easting, northing = self._pixel2world(x, y)
-        pt.SetPoint(0, easting, northing, float(z))
+        pt = lowest_point_within_polygon(self.raster, polygon, self.transformer, self.NODATA)
         return self._add_bottom_point(pt)
 
     def _add_bottom_point(self, geom):
