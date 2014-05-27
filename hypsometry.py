@@ -35,6 +35,7 @@ class Hypsometry:
         self._log = logging.getLogger(__name__).getChild(self.__class__.__name__)
         self.pts_dict = dict()  # inlet FID => feature
         self.volume = defaultdict(float)    #: inlet FID => volume
+        self.volume_total = defaultdict(float)    #: inlet FID => volume with nested depressions
         self.area = defaultdict(float)      #: inlet FID => last slice area
         self.z = []             # inlet elevations in ascending order
         p = index.Property()
@@ -314,6 +315,7 @@ Perhaps would be better to use SQL but this way we hopefully can use a
             lowest = min(enumerate(within), key=lambda tup: self.pts_dict[tup[1].id].GetZ())[0]
             k = within.pop(lowest).id
             if len(within):
+                self.volume_total[k] += reduce(lambda x, y: x + self.volume[y.id], within, 0)
                 gids = ','.join(str(k.id) for k in within)
                 self.out_ogr.ExecuteSQL('update {bottoms:s} set merge_to={lowest:d} where gid in ({gids}) and pid={part:d}'.format(bottoms=self.layer, lowest=k, gids=gids, part=self.part))
                 self._log.debug('Merging %s points into %d', gids, k)
@@ -341,9 +343,12 @@ Perhaps would be better to use SQL but this way we hopefully can use a
         f.SetGeometry(polygon)
         area = polygon.GetArea()
         f.SetField('area', area)
-        self.volume[k] += min(stage, self.step) * .5*(area + self.area[k])
+        inc = min(stage, self.step) * .5*(area + self.area[k])
+        self.volume[k] += inc
+        self.volume_total[k] += inc
         self.area[k] = area
         f.SetField('volume', self.volume[k])
+        f.SetField('volume_total', self.volume_total[k])
         self.polys.CreateFeature(f)
         return True
 
@@ -435,10 +440,13 @@ create unlogged table {table} (
   point integer not null,
   stage real not null,
   area real not null,
-  volume real not null);""".format(table=self.table, srid=srid)
+  volume real not null,
+  volume_total real not null);""".format(table=self.table, srid=srid)
             self.out_ogr.ExecuteSQL(sql)
         else:
-            output_lyr = self.out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','COLUMN_TYPES=z=real,stage=real,area=real,volume=real'])
+            output_lyr = self.out_ogr.CreateLayer(self.table, self.srs, ogr.wkbPolygon,
+                                                  ['OVERWRITE=YES', 'GEOMETRY_NAME=geom', 'FID=gid',
+                                                   'COLUMN_TYPES=z=real,stage=real,area=real,volume=real,volume_total=real'])
             if output_lyr is None:
                 self._log.critical('Failed to create an output layer %s', self.table)
             fd = ogr.FieldDefn('z', ogr.OFTReal)
@@ -453,6 +461,8 @@ create unlogged table {table} (
             fd = ogr.FieldDefn('area', ogr.OFTReal)
             output_lyr.CreateField(fd)
             fd = ogr.FieldDefn('volume', ogr.OFTReal)
+            output_lyr.CreateField(fd)
+            fd = ogr.FieldDefn('volume_total', ogr.OFTReal)
             output_lyr.CreateField(fd)
 
         if getattr(self, 'find_bottom', False):
