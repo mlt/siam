@@ -61,10 +61,11 @@ class Hypsometry:
             if fid is None or fid == '':
                 self._log.warning("FID column for '%s' is unknown!! I assume it is 'gid'", self.dem_parts)
                 fid = 'gid'
+            geom = parts.GetGeometryColumn() or 'geom'
             connstr_dem += """ where='rid in (
-select rid from {:s}, {:s}
-where ST_Intersects(geom, rast::geometry)
-  and {:s} = {:d})'""".format(self.dem_table, self.dem_parts, fid, self.part)
+select rid from {dem_table}, {dem_parts}
+where ST_Intersects({geom}, rast::geometry)
+  and {fid} = {part:d})'""".format(dem_table=self.dem_table, dem_parts=self.dem_parts, geom=geom, fid=fid, part=self.part)
         else:
             if exists(self.layer):
                 self.conn_ogr = ogr.Open(self.layer)
