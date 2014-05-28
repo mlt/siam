@@ -473,8 +473,9 @@ create unlogged table {table} (
 create unlogged table {layer} (
   gid serial primary key,
   geom geometry(PointZ, {srid}) not null,
-  z real not null, {merge}
-  pid integer not null);""".format(layer=self.layer, merge={False: '', True: 'merge_to integer,'}['single' != self.find_bottom], srid=srid)
+  z real not null,
+  merge_to integer,
+  pid integer not null);""".format(layer=self.layer, srid=srid)
                 self.out_ogr.ExecuteSQL(sql)
             else:
                 pts_lyr = self.conn_ogr.CreateLayer(self.layer, self.srs, ogr.wkbPoint25D, ['OVERWRITE=YES','GEOMETRY_NAME=geom','FID=gid','COLUMN_TYPES=z=real'])
@@ -482,9 +483,8 @@ create unlogged table {layer} (
                     self._log.critical('Failed to create a point layer %s', self.layer)
                 fd = ogr.FieldDefn('z', ogr.OFTReal)
                 pts_lyr.CreateField(fd)
-                if 'single' != self.find_bottom:
-                    fd = ogr.FieldDefn('merge_to', ogr.OFTInteger)
-                    pts_lyr.CreateField(fd)
+                fd = ogr.FieldDefn('merge_to', ogr.OFTInteger)
+                pts_lyr.CreateField(fd)
                 # pid is somewhat useless as gid numbering is global
                 fd = ogr.FieldDefn('pid', ogr.OFTInteger)
                 pts_lyr.CreateField(fd)
