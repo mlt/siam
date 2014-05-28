@@ -625,19 +625,16 @@ create index on {side_inlets_parts:s}(pid);
     def add_indices(self):
         self._log.info('Building indexes')
         # set maintenance_work_mem='300MB'
-        self.out_ogr.ExecuteSQL('create index on "%s" (point, volume desc)' % self.table)
+        self.out_ogr.ExecuteSQL('create index on %s (point, volume desc)' % self.table)
         if getattr(self, 'unlogged', False):
-            self.out_ogr.ExecuteSQL('create index on "%s" using gist (geom)' % self.table)
+            self.out_ogr.ExecuteSQL('create index on %s using gist (geom)' % self.table)
             if getattr(self, 'find_bottom', False):
-                self.out_ogr.ExecuteSQL('create index on "%s" using gist (geom)' % self.layer)
+                self.out_ogr.ExecuteSQL('create index on %s using gist (geom)' % self.layer)
         if getattr(self, 'find_bottom', False):
-            self.out_ogr.ExecuteSQL("""alter table "{hypsometry}"
-add constraint "{hypsometry}_point_fkey" foreign key (point)
-references "{layer}" (gid) on delete cascade""".format(hypsometry=self.table, layer=self.layer))
-            if 'single' != self.find_bottom:
-                self.out_ogr.ExecuteSQL("""alter table "{layer}"
-add constraint "{layer}_merge_to_fkey" foreign key (merge_to)
-references "{layer}" (gid) on delete set null""".format(layer=self.layer))
+            self.out_ogr.ExecuteSQL("""alter table {hypsometry} add foreign key (point)
+references {layer} (gid) on delete cascade""".format(hypsometry=self.table, layer=self.layer))
+            self.out_ogr.ExecuteSQL("""alter table {layer} add foreign key (merge_to)
+references {layer} (gid) on delete set null""".format(layer=self.layer))
 
     def kill(self):
         """To be used from GUI thread to abort operations"""
