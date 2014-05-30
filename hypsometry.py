@@ -617,7 +617,7 @@ create index on {side_inlets_parts:s}(pid);
                 out['part'] = part
                 out['_queue'] = self.queue
                 return out
-            self.pool.map(entry, [fix_part(x) for x in parts])
+            self.pool.map(entry, [fix_part(x) for x in parts], 1)
         else:
             h = Hypsometry(self.args)
             h.run()
