@@ -581,13 +581,7 @@ create index on {side_inlets_parts:s}(pid);
                        radius=self.radius, where=where))
             # self.conn_ogr.ReleaseResultSet(map_lyr)
 
-        lyr.ResetReading()
-        feat = lyr.GetNextFeature()
-        out = []
-        while not feat is None:
-            out.append(feat.GetFID())
-            feat = lyr.GetNextFeature()
-
+        out = [feat.GetFID() for feat in lyr]
         cnt = len(out)
         self._log.debug("Having %d partitions", cnt)
         # if not self.find_bottom:
@@ -596,6 +590,7 @@ create index on {side_inlets_parts:s}(pid);
 
     def run(self):
         if getattr(self, 'fixup', False):
+            # TODO: Do something about intrruption/resume
             # We have to keep output table in same database to be able
             # to selectively remove records. Alternatively we can
             # fetch list of gid using WHERE and delete those in output
