@@ -37,10 +37,16 @@ class Hypsometry:
         self.volume = defaultdict(float)    #: inlet FID => volume
         self.volume_total = defaultdict(float)    #: inlet FID => volume with nested depressions
         self.area = defaultdict(float)      #: inlet FID => last slice area
+        self.area_nonmasked = 0
+        self.area_last_contaminated = 0
         self.z = []             # inlet elevations in ascending order
         p = index.Property()
         p.dimension = 3
         self.pts_idx = index.Index(properties=p)
+        if getattr(self, 'find_bottom', None) in ('fast', 'rigorous'):
+            self.trials = int(1. / self.step)  # 1m can go without discovering new depressions
+        else:
+            self.trials = 0
 #        gdal.SetConfigOption('PG_USE_COPY', 'YES')
 
     def _read(self):
@@ -113,6 +119,7 @@ where ST_Contains(geom, rast::geometry)
     def _find_minmax(self):
         "An attempt to find range for partition to slice"
         masked = np.ma.masked_array(self.raster, mask=np.isclose(self.raster, self.NODATA))
+        self.area_nonmasked = np.ma.count(masked) * self.geotransform[1]*self.geotransform[1]
         zmin = masked.min()
         self.max_height = sys.maxint
         self.z.append(zmin)
@@ -203,7 +210,8 @@ Perhaps would be better to use SQL but this way we hopefully can use a
     def _process(self, z):
         """Elevation steps for a 'given' inlet and possibly others"""
         accepted = 1
-        while accepted>0:
+        left = self.trials
+        while accepted>0 or left>0:
             tmp = self.raster <= z
             self.imb.WriteArray(tmp.astype(np.byte))
             self._log.debug('Polygonizing...')
@@ -219,6 +227,12 @@ Perhaps would be better to use SQL but this way we hopefully can use a
 #                 self._log.debug('All polygons have been eliminated! Bailing out')
             self.dst_ds.DeleteLayer(1)
             z += self.step
+            if 0 == accepted and self.trials>0:
+                if self.area_last_contaminated > 0.8 * self.area_nonmasked:
+                    self._log.debug('Large fraction of valid data is contaminated %d / %d', self.area_last_contaminated, self.area_nonmasked)
+                    break
+                left -= 1
+                self._log.debug('No polygons accepted. %d attempts left', left)
         return z
 
     def _process_queue(self):
@@ -240,6 +254,7 @@ Perhaps would be better to use SQL but this way we hopefully can use a
                 pre = self.pts_idx.intersection((env[0], env[2], -sys.maxint, env[1], env[3], z), True)
                 within = (item for item in pre if self.pts_dict[item.id].Within(polygon))
                 self._remove_points(within)
+                self.area_last_contaminated = polygon.GetArea()
                 return True
 
         return False
