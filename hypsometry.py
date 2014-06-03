@@ -186,7 +186,7 @@ Perhaps would be better to use SQL but this way we hopefully can use a
         bndry = self.dst_ds.CreateLayer('bndry', self.srs, ogr.wkbPolygon)
         fd = ogr.FieldDefn('valid', ogr.OFTInteger)
         bndry.CreateField(fd)
-        gdal.Polygonize(self.mask, None, bndry, 0)
+        gdal.Polygonize(self.mask, None, bndry, 0, ["8CONNECTED=8"])
         if bndry.SetAttributeFilter('valid > 0'):
             self._log.critical("Failed to restrict valid data boundary polygons")
         for b in bndry:
